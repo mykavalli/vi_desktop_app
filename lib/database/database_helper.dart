@@ -376,7 +376,7 @@ class DatabaseHelper {
       
       final double basicSalary = data['basic_salary'] as double;
       final double totalPositionSalary = data['total_position_salary'] as double;
-      final double totalSalary = (basicSalary * totalDays) + totalPositionSalary;
+      final double totalSalary = basicSalary + totalPositionSalary;
 
       return TimekeepingSummary(
         personnelId: data['personnel_id'],

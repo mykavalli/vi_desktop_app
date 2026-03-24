@@ -6,6 +6,7 @@ import '../database/database_helper.dart';
 import '../models/personnel.dart';
 import '../models/transaction_point.dart';
 import '../models/timekeeping.dart';
+import '../utils/currency_format.dart';
 
 class TimekeepingSummaryScreen extends StatefulWidget {
   const TimekeepingSummaryScreen({super.key});
@@ -26,11 +27,18 @@ class _TimekeepingSummaryScreenState extends State<TimekeepingSummaryScreen> {
   List<TransactionPoint> _transactionPoints = [];
   List<TimekeepingSummary> _summaries = [];
   bool _isLoading = true;
+  final ScrollController _horizontalScrollController = ScrollController();
 
   @override
   void initState() {
     super.initState();
     _loadData();
+  }
+
+  @override
+  void dispose() {
+    _horizontalScrollController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadData() async {
@@ -53,6 +61,8 @@ class _TimekeepingSummaryScreenState extends State<TimekeepingSummaryScreen> {
 
   Future<void> _exportToExcel() async {
     final excel = xls.Excel.createExcel();
+    final String defaultSheet = excel.getDefaultSheet() ?? 'Sheet1';
+    excel.rename(defaultSheet, 'Cham cong tong hop');
     final sheet = excel['Cham cong tong hop'];
 
     final headers = ['STT', 'Tên nhân sự', 'Tổng ngày'];
@@ -61,71 +71,92 @@ class _TimekeepingSummaryScreenState extends State<TimekeepingSummaryScreen> {
     }
     headers.add('Tổng tiền lương');
 
+    xls.CellStyle headerStyle = xls.CellStyle(
+      bold: true,
+      backgroundColorHex: xls.ExcelColor.blue,
+      leftBorder: xls.Border(borderStyle: xls.BorderStyle.Thin),
+      rightBorder: xls.Border(borderStyle: xls.BorderStyle.Thin),
+      topBorder: xls.Border(borderStyle: xls.BorderStyle.Thin),
+      bottomBorder: xls.Border(borderStyle: xls.BorderStyle.Thin),
+    );
+
+    xls.CellStyle bodyStyle = xls.CellStyle(
+      leftBorder: xls.Border(borderStyle: xls.BorderStyle.Thin),
+      rightBorder: xls.Border(borderStyle: xls.BorderStyle.Thin),
+      topBorder: xls.Border(borderStyle: xls.BorderStyle.Thin),
+      bottomBorder: xls.Border(borderStyle: xls.BorderStyle.Thin),
+    );
+
     for (int i = 0; i < headers.length; i++) {
-      final cell = sheet.cell(
-        xls.CellIndex.indexByColumnRow(columnIndex: i, rowIndex: 0),
-      );
+      final cell = sheet.cell(xls.CellIndex.indexByColumnRow(columnIndex: i, rowIndex: 0));
       cell.value = xls.TextCellValue(headers[i]);
-      cell.cellStyle = xls.CellStyle(
-        bold: true,
-        backgroundColorHex: xls.ExcelColor.blue,
-      );
+      cell.cellStyle = headerStyle;
+      sheet.setColumnWidth(i, i == 1 ? 25.0 : 15.0);
     }
+
+    int grandTotalDays = 0;
+    double grandTotalSalary = 0.0;
+    Map<String, int> grandTotalTpDays = {};
 
     for (int i = 0; i < _summaries.length; i++) {
       final summary = _summaries[i];
       final rowIndex = i + 1;
 
-      sheet
-          .cell(
-            xls.CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: rowIndex),
-          )
-          .value = xls.TextCellValue(
-        '${i + 1}',
-      );
+      grandTotalDays += summary.totalDays;
+      grandTotalSalary += summary.totalSalary;
 
-      sheet
-          .cell(
-            xls.CellIndex.indexByColumnRow(columnIndex: 1, rowIndex: rowIndex),
-          )
-          .value = xls.TextCellValue(
-        summary.personnelName,
-      );
+      sheet.cell(xls.CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: rowIndex))
+        ..value = xls.TextCellValue('${i + 1}')
+        ..cellStyle = bodyStyle;
 
-      sheet
-          .cell(
-            xls.CellIndex.indexByColumnRow(columnIndex: 2, rowIndex: rowIndex),
-          )
-          .value = xls.IntCellValue(
-        summary.totalDays,
-      );
+      sheet.cell(xls.CellIndex.indexByColumnRow(columnIndex: 1, rowIndex: rowIndex))
+        ..value = xls.TextCellValue(summary.personnelName)
+        ..cellStyle = bodyStyle;
+
+      sheet.cell(xls.CellIndex.indexByColumnRow(columnIndex: 2, rowIndex: rowIndex))
+        ..value = xls.IntCellValue(summary.totalDays)
+        ..cellStyle = bodyStyle;
 
       for (int j = 0; j < _transactionPoints.length; j++) {
         final tpName = _transactionPoints[j].name;
         final days = summary.daysByTransactionPoint[tpName] ?? 0;
-        sheet
-            .cell(
-              xls.CellIndex.indexByColumnRow(
-                columnIndex: j + 3,
-                rowIndex: rowIndex,
-              ),
-            )
-            .value = xls.IntCellValue(
-          days,
-        );
+        grandTotalTpDays[tpName] = (grandTotalTpDays[tpName] ?? 0) + days;
+        
+        sheet.cell(xls.CellIndex.indexByColumnRow(columnIndex: j + 3, rowIndex: rowIndex))
+          ..value = xls.IntCellValue(days)
+          ..cellStyle = bodyStyle;
       }
 
-      sheet
-          .cell(
-            xls.CellIndex.indexByColumnRow(
-              columnIndex: _transactionPoints.length + 3,
-              rowIndex: rowIndex,
-            ),
-          )
-          .value = xls.DoubleCellValue(
-            summary.totalSalary,
-          );
+      sheet.cell(xls.CellIndex.indexByColumnRow(columnIndex: _transactionPoints.length + 3, rowIndex: rowIndex))
+        ..value = xls.TextCellValue(CurrencyFormat.formatNumberOnly(summary.totalSalary))
+        ..cellStyle = bodyStyle;
     }
+
+    // Add Totals row
+    final totalsRowIndex = _summaries.length + 1;
+    sheet.cell(xls.CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: totalsRowIndex))
+      ..value = xls.TextCellValue('')
+      ..cellStyle = headerStyle;
+
+    sheet.cell(xls.CellIndex.indexByColumnRow(columnIndex: 1, rowIndex: totalsRowIndex))
+      ..value = xls.TextCellValue('Tổng cộng')
+      ..cellStyle = headerStyle;
+
+    sheet.cell(xls.CellIndex.indexByColumnRow(columnIndex: 2, rowIndex: totalsRowIndex))
+      ..value = xls.IntCellValue(grandTotalDays)
+      ..cellStyle = headerStyle;
+
+    for (int j = 0; j < _transactionPoints.length; j++) {
+      final tpName = _transactionPoints[j].name;
+      final totalDaysTp = grandTotalTpDays[tpName] ?? 0;
+      sheet.cell(xls.CellIndex.indexByColumnRow(columnIndex: j + 3, rowIndex: totalsRowIndex))
+        ..value = xls.IntCellValue(totalDaysTp)
+        ..cellStyle = headerStyle;
+    }
+
+    sheet.cell(xls.CellIndex.indexByColumnRow(columnIndex: _transactionPoints.length + 3, rowIndex: totalsRowIndex))
+      ..value = xls.TextCellValue(CurrencyFormat.formatNumberOnly(grandTotalSalary))
+      ..cellStyle = headerStyle;
 
     final outputPath = await FilePicker.platform.saveFile(
       dialogTitle: 'Lưu file Excel',
@@ -153,6 +184,18 @@ class _TimekeepingSummaryScreenState extends State<TimekeepingSummaryScreen> {
 
   @override
   Widget build(BuildContext context) {
+    int grandTotalDays = 0;
+    double grandTotalSalary = 0.0;
+    Map<String, int> grandTotalTpDays = {};
+
+    for(var summary in _summaries) {
+      grandTotalDays += summary.totalDays;
+      grandTotalSalary += summary.totalSalary;
+      for (var tp in _transactionPoints) {
+        grandTotalTpDays[tp.name] = (grandTotalTpDays[tp.name] ?? 0) + (summary.daysByTransactionPoint[tp.name] ?? 0);
+      }
+    }
+
     return Scaffold(
       body: Column(
         children: [
@@ -263,9 +306,14 @@ class _TimekeepingSummaryScreenState extends State<TimekeepingSummaryScreen> {
                 : SingleChildScrollView(
                     padding: const EdgeInsets.all(16),
                     child: Card(
-                      child: SingleChildScrollView(
-                        scrollDirection: Axis.horizontal,
-                        child: DataTable(
+                      child: Scrollbar(
+                        controller: _horizontalScrollController,
+                        thumbVisibility: true,
+                        child: SingleChildScrollView(
+                          controller: _horizontalScrollController,
+                          scrollDirection: Axis.horizontal,
+                          child: DataTable(
+                          border: TableBorder.all(color: Colors.grey.shade300),
                           columns: [
                             const DataColumn(label: Text('STT')),
                             const DataColumn(label: Text('Tên nhân sự')),
@@ -284,33 +332,59 @@ class _TimekeepingSummaryScreenState extends State<TimekeepingSummaryScreen> {
                               numeric: true,
                             ),
                           ],
-                          rows: List.generate(_summaries.length, (index) {
-                            final summary = _summaries[index];
-                            return DataRow(
-                              cells: [
-                                DataCell(Text('${index + 1}')),
-                                DataCell(Text(summary.personnelName)),
-                                DataCell(Text('${summary.totalDays}')),
-                                ..._transactionPoints.map(
-                                  (tp) => DataCell(
-                                    Text(
-                                      '${summary.daysByTransactionPoint[tp.name] ?? 0}',
+                          rows: [
+                            ...List.generate(_summaries.length, (index) {
+                              final summary = _summaries[index];
+                              return DataRow(
+                                cells: [
+                                  DataCell(Text('${index + 1}')),
+                                  DataCell(Text(summary.personnelName)),
+                                  DataCell(Text('${summary.totalDays}')),
+                                  ..._transactionPoints.map(
+                                    (tp) => DataCell(
+                                      Text(
+                                        '${summary.daysByTransactionPoint[tp.name] ?? 0}',
+                                      ),
                                     ),
                                   ),
-                                ),
-                                DataCell(
-                                  Text(
-                                    '${summary.totalSalary.toStringAsFixed(0).replaceAllMapped(RegExp(r'(\\d{1,3})(?=(\\d{3})+(?!\\d))'), (Match m) => '${m[1]},')} đ',
-                                    style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.green),
+                                  DataCell(
+                                    Text(
+                                      CurrencyFormat.formatVN(summary.totalSalary),
+                                      style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.green),
+                                    ),
                                   ),
-                                ),
-                              ],
-                            );
-                          }),
+                                ],
+                              );
+                            }),
+                            if (_summaries.isNotEmpty)
+                              DataRow(
+                                color: MaterialStateProperty.all(Colors.amber.shade100),
+                                cells: [
+                                  const DataCell(Text('')),
+                                  const DataCell(Text('Tổng cộng', style: TextStyle(fontWeight: FontWeight.bold))),
+                                  DataCell(Text(grandTotalDays.toString(), style: const TextStyle(fontWeight: FontWeight.bold))),
+                                  ..._transactionPoints.map(
+                                    (tp) => DataCell(
+                                      Text(
+                                        '${grandTotalTpDays[tp.name] ?? 0}',
+                                        style: const TextStyle(fontWeight: FontWeight.bold),
+                                      ),
+                                    ),
+                                  ),
+                                  DataCell(
+                                    Text(
+                                      CurrencyFormat.formatVN(grandTotalSalary),
+                                      style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.red),
+                                    ),
+                                  ),
+                                ]
+                              )
+                          ],
                         ),
                       ),
                     ),
                   ),
+                ),
           ),
         ],
       ),

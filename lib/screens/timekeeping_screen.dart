@@ -308,6 +308,7 @@ class _TimekeepingScreenState extends State<TimekeepingScreen> {
                           child: SingleChildScrollView(
                             controller: _verticalScrollController,
                           child: DataTable(
+                            border: TableBorder.all(color: Colors.grey.shade300),
                             columnSpacing: 16,
                             dataRowMinHeight: 40,
                             dataRowMaxHeight: 48,
