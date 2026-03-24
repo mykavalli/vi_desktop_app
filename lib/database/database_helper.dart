@@ -1,0 +1,462 @@
+import 'package:sqflite/sqflite.dart';
+import 'package:path/path.dart';
+import '../models/user.dart';
+import '../models/personnel.dart';
+import '../models/job_position.dart';
+import '../models/transaction_point.dart';
+import '../models/timekeeping.dart';
+
+class DatabaseHelper {
+  static final DatabaseHelper instance = DatabaseHelper._init();
+  static Database? _database;
+
+  DatabaseHelper._init();
+
+  Future<Database> get database async {
+    if (_database != null) return _database!;
+    _database = await _initDB('vi_desktop_app.db');
+    return _database!;
+  }
+
+  Future<Database> _initDB(String filePath) async {
+    final dbPath = await getDatabasesPath();
+    final path = join(dbPath, filePath);
+
+    return await openDatabase(path, version: 1, onCreate: _createDB);
+  }
+
+  Future _createDB(Database db, int version) async {
+    await db.execute('''
+      CREATE TABLE users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        password_hash TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE personnel (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        basic_salary REAL NOT NULL,
+        is_active INTEGER DEFAULT 1,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE job_positions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        salary REAL NOT NULL,
+        is_active INTEGER DEFAULT 1,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE transaction_points (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        is_active INTEGER DEFAULT 1,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE timekeeping (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        personnel_id INTEGER NOT NULL,
+        date DATE NOT NULL,
+        job_position_id INTEGER NOT NULL,
+        transaction_point_id INTEGER NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (personnel_id) REFERENCES personnel(id),
+        FOREIGN KEY (job_position_id) REFERENCES job_positions(id),
+        FOREIGN KEY (transaction_point_id) REFERENCES transaction_points(id)
+      )
+    ''');
+  }
+
+  // ==================== USER OPERATIONS ====================
+  Future<int> insertUser(User user) async {
+    final db = await database;
+    return await db.insert('users', user.toMap());
+  }
+
+  Future<User?> getUser() async {
+    final db = await database;
+    final maps = await db.query('users', limit: 1);
+    if (maps.isEmpty) return null;
+    return User.fromMap(maps.first);
+  }
+
+  Future<int> updateUserPassword(String passwordHash) async {
+    final db = await database;
+    final user = await getUser();
+    if (user == null) {
+      return await insertUser(
+        User(passwordHash: passwordHash, createdAt: DateTime.now()),
+      );
+    }
+    return await db.update(
+      'users',
+      {'password_hash': passwordHash},
+      where: 'id = ?',
+      whereArgs: [user.id],
+    );
+  }
+
+  // ==================== PERSONNEL OPERATIONS ====================
+  Future<int> insertPersonnel(Personnel personnel) async {
+    final db = await database;
+    return await db.insert('personnel', personnel.toMap());
+  }
+
+  Future<List<Personnel>> getAllPersonnel({bool activeOnly = true}) async {
+    final db = await database;
+    final maps = await db.query(
+      'personnel',
+      where: activeOnly ? 'is_active = ?' : null,
+      whereArgs: activeOnly ? [1] : null,
+      orderBy: 'name ASC',
+    );
+    return maps.map((map) => Personnel.fromMap(map)).toList();
+  }
+
+  Future<Personnel?> getPersonnelById(int id) async {
+    final db = await database;
+    final maps = await db.query('personnel', where: 'id = ?', whereArgs: [id]);
+    if (maps.isEmpty) return null;
+    return Personnel.fromMap(maps.first);
+  }
+
+  Future<int> updatePersonnel(Personnel personnel) async {
+    final db = await database;
+    return await db.update(
+      'personnel',
+      personnel.toMap(),
+      where: 'id = ?',
+      whereArgs: [personnel.id],
+    );
+  }
+
+  Future<int> deletePersonnel(int id) async {
+    final db = await database;
+    return await db.update(
+      'personnel',
+      {'is_active': 0},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  // ==================== JOB POSITION OPERATIONS ====================
+  Future<int> insertJobPosition(JobPosition position) async {
+    final db = await database;
+    return await db.insert('job_positions', position.toMap());
+  }
+
+  Future<List<JobPosition>> getAllJobPositions({bool activeOnly = true}) async {
+    final db = await database;
+    final maps = await db.query(
+      'job_positions',
+      where: activeOnly ? 'is_active = ?' : null,
+      whereArgs: activeOnly ? [1] : null,
+      orderBy: 'name ASC',
+    );
+    return maps.map((map) => JobPosition.fromMap(map)).toList();
+  }
+
+  Future<JobPosition?> getJobPositionById(int id) async {
+    final db = await database;
+    final maps = await db.query(
+      'job_positions',
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+    if (maps.isEmpty) return null;
+    return JobPosition.fromMap(maps.first);
+  }
+
+  Future<int> updateJobPosition(JobPosition position) async {
+    final db = await database;
+    return await db.update(
+      'job_positions',
+      position.toMap(),
+      where: 'id = ?',
+      whereArgs: [position.id],
+    );
+  }
+
+  Future<int> deleteJobPosition(int id) async {
+    final db = await database;
+    return await db.update(
+      'job_positions',
+      {'is_active': 0},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  // ==================== TRANSACTION POINT OPERATIONS ====================
+  Future<int> insertTransactionPoint(TransactionPoint point) async {
+    final db = await database;
+    return await db.insert('transaction_points', point.toMap());
+  }
+
+  Future<List<TransactionPoint>> getAllTransactionPoints({
+    bool activeOnly = true,
+  }) async {
+    final db = await database;
+    final maps = await db.query(
+      'transaction_points',
+      where: activeOnly ? 'is_active = ?' : null,
+      whereArgs: activeOnly ? [1] : null,
+      orderBy: 'name ASC',
+    );
+    return maps.map((map) => TransactionPoint.fromMap(map)).toList();
+  }
+
+  Future<TransactionPoint?> getTransactionPointById(int id) async {
+    final db = await database;
+    final maps = await db.query(
+      'transaction_points',
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+    if (maps.isEmpty) return null;
+    return TransactionPoint.fromMap(maps.first);
+  }
+
+  Future<int> updateTransactionPoint(TransactionPoint point) async {
+    final db = await database;
+    return await db.update(
+      'transaction_points',
+      point.toMap(),
+      where: 'id = ?',
+      whereArgs: [point.id],
+    );
+  }
+
+  Future<int> deleteTransactionPoint(int id) async {
+    final db = await database;
+    return await db.update(
+      'transaction_points',
+      {'is_active': 0},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  // ==================== TIMEKEEPING OPERATIONS ====================
+  Future<int> insertTimekeeping(Timekeeping timekeeping) async {
+    final db = await database;
+    return await db.insert('timekeeping', timekeeping.toMap());
+  }
+
+  Future<void> insertMultipleTimekeeping(List<Timekeeping> timekeepings) async {
+    final db = await database;
+    final batch = db.batch();
+    for (var tk in timekeepings) {
+      batch.insert('timekeeping', tk.toMap());
+    }
+    await batch.commit();
+  }
+
+  Future<List<TimekeepingDetail>> getTimekeepingDetail({
+    required int year,
+    required int month,
+    int? personnelId,
+  }) async {
+    final db = await database;
+    String where = "strftime('%Y', t.date) = ? AND strftime('%m', t.date) = ?";
+    List<dynamic> whereArgs = [
+      year.toString(),
+      month.toString().padLeft(2, '0'),
+    ];
+
+    if (personnelId != null) {
+      where += ' AND t.personnel_id = ?';
+      whereArgs.add(personnelId);
+    }
+
+    final result = await db.rawQuery('''
+      SELECT 
+        t.id as timekeeping_id,
+        t.personnel_id,
+        p.name as personnel_name,
+        t.date,
+        t.job_position_id,
+        jp.name as job_position_name,
+        t.transaction_point_id,
+        tp.name as transaction_point_name
+      FROM timekeeping t
+      INNER JOIN personnel p ON t.personnel_id = p.id
+      INNER JOIN job_positions jp ON t.job_position_id = jp.id
+      INNER JOIN transaction_points tp ON t.transaction_point_id = tp.id
+      WHERE $where
+      ORDER BY t.date ASC, p.name ASC
+    ''', whereArgs);
+
+    return result.map((map) => TimekeepingDetail.fromMap(map)).toList();
+  }
+
+  Future<List<TimekeepingSummary>> getTimekeepingSummary({
+    required int year,
+    required int month,
+    int? personnelId,
+  }) async {
+    final db = await database;
+
+    final transactionPoints = await getAllTransactionPoints();
+
+    String where = "strftime('%Y', t.date) = ? AND strftime('%m', t.date) = ?";
+    List<dynamic> whereArgs = [
+      year.toString(),
+      month.toString().padLeft(2, '0'),
+    ];
+
+    if (personnelId != null) {
+      where += ' AND t.personnel_id = ?';
+      whereArgs.add(personnelId);
+    }
+
+    final result = await db.rawQuery('''
+      SELECT 
+        t.personnel_id,
+        p.name as personnel_name,
+        p.basic_salary as basic_salary,
+        jp.salary as position_salary,
+        tp.name as transaction_point_name,
+        t.date
+      FROM timekeeping t
+      INNER JOIN personnel p ON t.personnel_id = p.id
+      INNER JOIN transaction_points tp ON t.transaction_point_id = tp.id
+      INNER JOIN job_positions jp ON t.job_position_id = jp.id
+      WHERE $where
+      ORDER BY p.name ASC, tp.name ASC
+    ''', whereArgs);
+
+    Map<int, Map<String, dynamic>> summaryMap = {};
+
+    for (var row in result) {
+      final personnelId = row['personnel_id'] as int;
+      final personnelName = row['personnel_name'] as String;
+      final basicSalary = (row['basic_salary'] as num).toDouble();
+      final positionSalary = (row['position_salary'] as num).toDouble();
+      final tpName = row['transaction_point_name'] as String;
+      final date = row['date'] as String;
+
+      if (!summaryMap.containsKey(personnelId)) {
+        summaryMap[personnelId] = {
+          'personnel_id': personnelId,
+          'personnel_name': personnelName,
+          'basic_salary': basicSalary,
+          'total_position_salary': 0.0,
+          'unique_dates_by_tp': <String, Set<String>>{},
+        };
+      }
+
+      final pMap = summaryMap[personnelId]!;
+      pMap['total_position_salary'] = (pMap['total_position_salary'] as double) + positionSalary;
+      
+      final datesByTp = pMap['unique_dates_by_tp'] as Map<String, Set<String>>;
+      if (!datesByTp.containsKey(tpName)) {
+        datesByTp[tpName] = <String>{};
+      }
+      datesByTp[tpName]!.add(date);
+    }
+
+    return summaryMap.values.map((data) {
+      final datesByTp = data['unique_dates_by_tp'] as Map<String, Set<String>>;
+      final daysByTransactionPoint = datesByTp.map((key, value) => MapEntry(key, value.length));
+      
+      final totalDays = daysByTransactionPoint.values.fold(0, (a, b) => a + b);
+      
+      final double basicSalary = data['basic_salary'] as double;
+      final double totalPositionSalary = data['total_position_salary'] as double;
+      final double totalSalary = (basicSalary * totalDays) + totalPositionSalary;
+
+      return TimekeepingSummary(
+        personnelId: data['personnel_id'],
+        personnelName: data['personnel_name'],
+        totalDays: totalDays,
+        daysByTransactionPoint: daysByTransactionPoint,
+        totalSalary: totalSalary,
+      );
+    }).toList();
+  }
+
+  Future<List<Timekeeping>> getTimekeepingByDate({
+    required int personnelId,
+    required DateTime date,
+  }) async {
+    final db = await database;
+    final dateStr = date.toIso8601String().split('T')[0];
+    final maps = await db.query(
+      'timekeeping',
+      where: 'personnel_id = ? AND date = ?',
+      whereArgs: [personnelId, dateStr],
+    );
+    return maps.map((map) => Timekeeping.fromMap(map)).toList();
+  }
+
+  Future<int> deleteTimekeeping(int id) async {
+    final db = await database;
+    return await db.delete('timekeeping', where: 'id = ?', whereArgs: [id]);
+  }
+
+  Future<int> deleteTimekeepingByMonth({
+    required int year,
+    required int month,
+    int? personnelId,
+  }) async {
+    final db = await database;
+    String where = "strftime('%Y', date) = ? AND strftime('%m', date) = ?";
+    List<dynamic> whereArgs = [
+      year.toString(),
+      month.toString().padLeft(2, '0'),
+    ];
+
+    if (personnelId != null) {
+      where += ' AND personnel_id = ?';
+      whereArgs.add(personnelId);
+    }
+
+    return await db.delete('timekeeping', where: where, whereArgs: whereArgs);
+  }
+
+  Future<int> deleteTimekeepingByDate(int personnelId, DateTime date) async {
+    final db = await database;
+    final dateStr = date.toIso8601String().split('T')[0];
+    return await db.delete(
+      'timekeeping',
+      where: 'personnel_id = ? AND date = ?',
+      whereArgs: [personnelId, dateStr],
+    );
+  }
+
+  Future<List<Timekeeping>> getTimekeepingByMonth({
+    required int year,
+    required int month,
+  }) async {
+    final db = await database;
+    String where = "strftime('%Y', date) = ? AND strftime('%m', date) = ?";
+    List<dynamic> whereArgs = [
+      year.toString(),
+      month.toString().padLeft(2, '0'),
+    ];
+    final maps = await db.query(
+      'timekeeping',
+      where: where,
+      whereArgs: whereArgs,
+    );
+    return maps.map((map) => Timekeeping.fromMap(map)).toList();
+  }
+
+  Future close() async {
+    final db = await database;
+    db.close();
+  }
+}
