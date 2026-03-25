@@ -14,7 +14,6 @@ void main() async {
   WindowOptions windowOptions = const WindowOptions(
     size: Size(1280, 800),
     center: true,
-    backgroundColor: Colors.transparent,
     skipTaskbar: false,
     titleBarStyle: TitleBarStyle.normal,
     title: 'Vi Desktop App',
