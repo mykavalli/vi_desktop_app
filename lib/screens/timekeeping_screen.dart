@@ -69,7 +69,8 @@ class _TimekeepingScreenState extends State<TimekeepingScreen> {
   }
 
   Future<void> _loadMasterData() async {
-    final personnel = await _db.getAllPersonnel();
+    // Only load actively working personnel for timekeeping dropdowns
+    final personnel = await _db.getAllPersonnel(activeOnly: true, workingOnly: true);
     final jobs = await _db.getAllJobPositions();
     final points = await _db.getAllTransactionPoints();
     if (mounted) {
@@ -84,7 +85,8 @@ class _TimekeepingScreenState extends State<TimekeepingScreen> {
   Future<void> _loadData() async {
     setState(() => _isLoading = true);
 
-    _personnelList = await _db.getAllPersonnel();
+    // Only actively working personnel appear in timekeeping dropdowns
+    _personnelList = await _db.getAllPersonnel(activeOnly: true, workingOnly: true);
     _jobPositions = await _db.getAllJobPositions();
     _transactionPoints = await _db.getAllTransactionPoints();
 
@@ -523,10 +525,11 @@ class _TimekeepingScreenState extends State<TimekeepingScreen> {
                                             fontWeight: FontWeight.bold))),
                               ],
                               rows: _rows.map((row) {
+                                final pName = _getPersonnelName(row.personnelId);
                                 return DataRow(
                                   cells: [
                                     DataCell(Text(
-                                        _getPersonnelName(row.personnelId))),
+                                        pName)),
                                     DataCell(
                                       DropdownButton<int>(
                                         value: row.jobPositionId,
@@ -567,14 +570,17 @@ class _TimekeepingScreenState extends State<TimekeepingScreen> {
                                           _buildDayCell(row, day));
                                     }),
                                     DataCell(
-                                      IconButton(
-                                        icon: const Icon(Icons.delete,
-                                            color: Colors.red),
-                                        onPressed: () {
-                                          setState(() {
-                                            _rows.remove(row);
-                                          });
-                                        },
+                                      MouseRegion(
+                                        cursor: SystemMouseCursors.click,
+                                        child: IconButton(
+                                          icon: const Icon(Icons.delete,
+                                              color: Colors.red),
+                                          onPressed: () {
+                                            setState(() {
+                                              _rows.remove(row);
+                                            });
+                                          },
+                                        ),
                                       ),
                                     ),
                                   ],

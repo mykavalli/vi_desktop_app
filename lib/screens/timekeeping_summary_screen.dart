@@ -57,7 +57,8 @@ class _TimekeepingSummaryScreenState extends State<TimekeepingSummaryScreen> {
 
   Future<void> _loadData() async {
     setState(() => _isLoading = true);
-    _personnelList = await _db.getAllPersonnel();
+    // Load ALL personnel including resigned for historical filtering
+    _personnelList = await _db.getAllPersonnel(activeOnly: true, workingOnly: false);
     _transactionPoints = await _db.getAllTransactionPoints();
     await _loadSummary();
     setState(() => _isLoading = false);
@@ -258,102 +259,133 @@ class _TimekeepingSummaryScreenState extends State<TimekeepingSummaryScreen> {
     return Scaffold(
       body: Column(
         children: [
-          // ── Filter toolbar (always left-aligned) ──────────────
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            color: Colors.grey[100],
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  DropdownButton<int>(
-                    value: _selectedMonth,
-                    items: List.generate(12, (i) => DropdownMenuItem(
-                      value: i + 1,
-                      child: Text('Tháng ${i + 1}'),
-                    )),
-                    onChanged: (v) => setState(() => _selectedMonth = v!),
-                  ),
-                  const SizedBox(width: 12),
-                  DropdownButton<int>(
-                    value: _selectedYear,
-                    items: List.generate(10, (i) {
-                      final y = DateTime.now().year - 5 + i;
-                      return DropdownMenuItem(value: y, child: Text('Năm $y'));
-                    }),
-                    onChanged: (v) => setState(() => _selectedYear = v!),
-                  ),
-                  const SizedBox(width: 12),
-                  SizedBox(
-                    width: 180,
-                    child: DropdownButtonFormField<int?>(
-                      value: _selectedPersonnelId,
-                      decoration: const InputDecoration(
-                        labelText: 'Nhân sự',
-                        border: OutlineInputBorder(),
-                        contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                        isDense: true,
+          // ── Filter toolbar — always left-aligned ──────────────
+          Align(
+            alignment: Alignment.center,
+            child: Container(
+              width: double.infinity,
+              alignment: Alignment.center,
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+              color: Colors.grey[100],
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    MouseRegion(
+                      cursor: SystemMouseCursors.click,
+                      child: DropdownButton<int>(
+                        value: _selectedMonth,
+                        items: List.generate(12, (i) => DropdownMenuItem(
+                          value: i + 1,
+                          child: Text('Tháng ${i + 1}'),
+                        )),
+                        onChanged: (v) => setState(() => _selectedMonth = v!),
                       ),
-                      items: [
-                        const DropdownMenuItem<int?>(value: null, child: Text('Tất cả')),
-                        ..._personnelList.map((p) =>
-                            DropdownMenuItem(value: p.id, child: Text(p.name))),
-                      ],
-                      onChanged: (v) => setState(() => _selectedPersonnelId = v),
                     ),
-                  ),
-                  const SizedBox(width: 12),
-                  // Search by name
-                  SizedBox(
-                    width: 200,
-                    child: TextField(
-                      controller: _searchController,
-                      decoration: InputDecoration(
-                        labelText: 'Tìm tên nhân viên',
-                        border: const OutlineInputBorder(),
-                        isDense: true,
-                        contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 12, vertical: 8),
-                        prefixIcon: const Icon(Icons.search, size: 18),
-                        suffixIcon: _searchQuery.isNotEmpty
-                            ? MouseRegion(
-                                cursor: SystemMouseCursors.click,
-                                child: IconButton(
-                                  icon: const Icon(Icons.clear, size: 16),
-                                  onPressed: () {
-                                    _searchController.clear();
-                                    setState(() => _searchQuery = '');
-                                  },
+                    const SizedBox(width: 12),
+                    MouseRegion(
+                      cursor: SystemMouseCursors.click,
+                      child: DropdownButton<int>(
+                        value: _selectedYear,
+                        items: List.generate(10, (i) {
+                          final y = DateTime.now().year - 5 + i;
+                          return DropdownMenuItem(value: y, child: Text('Năm $y'));
+                        }),
+                        onChanged: (v) => setState(() => _selectedYear = v!),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    MouseRegion(
+                      cursor: SystemMouseCursors.click,
+                      child: SizedBox(
+                        width: 200,
+                        child: DropdownButtonFormField<int?>(
+                          value: _selectedPersonnelId,
+                          decoration: const InputDecoration(
+                            labelText: 'Nhân sự',
+                            border: OutlineInputBorder(),
+                            contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                            isDense: true,
+                          ),
+                          items: [
+                            const DropdownMenuItem<int?>(value: null, child: Text('Tất cả')),
+                            ..._personnelList.map((p) {
+                              final isResigned = !p.isWorking;
+                              return DropdownMenuItem(
+                                value: p.id,
+                                child: Text(
+                                  p.name + (isResigned ? ' [Đã nghỉ]' : ''),
+                                  style: TextStyle(
+                                    color: isResigned ? Colors.grey.shade500 : null,
+                                  ),
                                 ),
-                              )
-                            : null,
+                              );
+                            }),
+                          ],
+                          onChanged: (v) => setState(() => _selectedPersonnelId = v),
+                        ),
                       ),
-                      onChanged: (v) => setState(() => _searchQuery = v),
                     ),
-                  ),
-                  const SizedBox(width: 12),
-                  ElevatedButton.icon(
-                    onPressed: () async {
-                      setState(() => _isLoading = true);
-                      await _loadSummary();
-                      setState(() => _isLoading = false);
-                    },
-                    icon: const Icon(Icons.search),
-                    label: const Text('Tìm kiếm'),
-                  ),
-                  const SizedBox(width: 12),
-                  ElevatedButton.icon(
-                    onPressed: _summaries.isEmpty ? null : _exportToExcel,
-                    icon: const Icon(Icons.download),
-                    label: const Text('Xuất Excel'),
-                  ),
-                ],
+                    const SizedBox(width: 12),
+                    // Search by name
+                    SizedBox(
+                      width: 200,
+                      child: TextField(
+                        controller: _searchController,
+                        decoration: InputDecoration(
+                          labelText: 'Tìm tên nhân viên',
+                          border: const OutlineInputBorder(),
+                          isDense: true,
+                          contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 8),
+                          prefixIcon: const Icon(Icons.search, size: 18),
+                          suffixIcon: _searchQuery.isNotEmpty
+                              ? MouseRegion(
+                                  cursor: SystemMouseCursors.click,
+                                  child: IconButton(
+                                    icon: const Icon(Icons.clear, size: 16),
+                                    onPressed: () {
+                                      _searchController.clear();
+                                      setState(() => _searchQuery = '');
+                                    },
+                                  ),
+                                )
+                              : null,
+                        ),
+                        onChanged: (v) => setState(() => _searchQuery = v),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    MouseRegion(
+                      cursor: SystemMouseCursors.click,
+                      child: ElevatedButton.icon(
+                        onPressed: () async {
+                          setState(() => _isLoading = true);
+                          await _loadSummary();
+                          setState(() => _isLoading = false);
+                        },
+                        icon: const Icon(Icons.search),
+                        label: const Text('Tìm kiếm'),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    MouseRegion(
+                      cursor: SystemMouseCursors.click,
+                      child: ElevatedButton.icon(
+                        onPressed: _summaries.isEmpty ? null : _exportToExcel,
+                        icon: const Icon(Icons.download),
+                        label: const Text('Xuất Excel'),
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
 
-          // ── Content ─────────────────────────────────────────────
+          // ── Content — always top-left aligned ─────────────────
           Expanded(
             child: _isLoading
                 ? const Center(child: CircularProgressIndicator())
@@ -373,20 +405,20 @@ class _TimekeepingSummaryScreenState extends State<TimekeepingSummaryScreen> {
                           ],
                         ),
                       )
-                    : SingleChildScrollView(
-                        padding: const EdgeInsets.all(16),
-                        child: Card(
-                          child: Scrollbar(
+                    // Data always starts at top-left; overflows scroll right
+                    : Align(
+                        alignment: Alignment.topLeft,
+                        child: SingleChildScrollView(
+                          padding: const EdgeInsets.all(16),
+                          child: SingleChildScrollView(
+                            scrollDirection: Axis.horizontal,
                             controller: _horizontalScrollController,
-                            thumbVisibility: true,
-                            child: SingleChildScrollView(
-                              controller: _horizontalScrollController,
-                              scrollDirection: Axis.horizontal,
+                            child: Card(
                               child: DataTable(
                                 border: TableBorder.all(
                                     color: Colors.grey.shade300),
                                 headingRowColor:
-                                    MaterialStateProperty.all(Colors.blue[50]),
+                                    WidgetStateProperty.all(Colors.blue[50]),
                                 columns: [
                                   const DataColumn(label: Text('STT')),
                                   const DataColumn(label: Text('Tên nhân sự')),
@@ -431,13 +463,14 @@ class _TimekeepingSummaryScreenState extends State<TimekeepingSummaryScreen> {
                                               child: Text(
                                                 summary.personnelName,
                                                 style: TextStyle(
-                                                  color: Theme.of(context)
-                                                      .primaryColor,
+                                                  color: !summary.isWorking
+                                                      ? Colors.grey.shade500
+                                                      : Theme.of(context).primaryColor,
                                                   decoration:
                                                       TextDecoration.underline,
-                                                  decorationColor:
-                                                      Theme.of(context)
-                                                          .primaryColor,
+                                                  decorationColor: !summary.isWorking
+                                                      ? Colors.grey.shade500
+                                                      : Theme.of(context).primaryColor,
                                                 ),
                                               ),
                                             ),
@@ -479,7 +512,7 @@ class _TimekeepingSummaryScreenState extends State<TimekeepingSummaryScreen> {
                                   // Grand totals row
                                   if (filtered.isNotEmpty)
                                     DataRow(
-                                      color: MaterialStateProperty.all(
+                                      color: WidgetStateProperty.all(
                                           Colors.amber.shade100),
                                       cells: [
                                         const DataCell(Text('')),

@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:excel/excel.dart' as xls;
+import 'package:file_picker/file_picker.dart';
+import 'dart:io';
 import '../database/database_helper.dart';
 import '../models/personnel.dart';
 import '../state/app_state.dart';
@@ -44,7 +47,8 @@ class _PersonnelScreenState extends State<PersonnelScreen> {
 
   Future<void> _loadPersonnel() async {
     setState(() => _isLoading = true);
-    final personnel = await _db.getAllPersonnel();
+    // Load all active personnel including resigned (is_active=1, any is_working)
+    final personnel = await _db.getAllPersonnel(activeOnly: true, workingOnly: false);
     setState(() {
       _personnel = personnel;
       _isLoading = false;
@@ -52,101 +56,199 @@ class _PersonnelScreenState extends State<PersonnelScreen> {
   }
 
   void _showAddEditDialog({Personnel? personnel}) {
-    final nameController =
-        TextEditingController(text: personnel?.name ?? '');
+    final nameController = TextEditingController(text: personnel?.name ?? '');
     final salaryController = TextEditingController(
-      text: personnel?.basicSalary.toString() ?? '',
+      text: personnel?.basicSalary.toStringAsFixed(0) ?? '',
     );
+    final driverLicenseController =
+        TextEditingController(text: personnel?.driverLicense ?? '');
+    final depositController = TextEditingController(
+      text: personnel?.deposit?.toStringAsFixed(0) ?? '',
+    );
+    DateTime? selectedStartDate = personnel?.startDate;
+
     final formKey = GlobalKey<FormState>();
-    final nameFocus = FocusNode();
-    final salaryFocus = FocusNode();
-
-    Future<void> onSave() async {
-      if (formKey.currentState!.validate()) {
-        final newPersonnel = Personnel(
-          id: personnel?.id,
-          name: nameController.text,
-          basicSalary: double.parse(salaryController.text),
-          createdAt: personnel?.createdAt ?? DateTime.now(),
-        );
-
-        if (personnel == null) {
-          await _db.insertPersonnel(newPersonnel);
-        } else {
-          await _db.updatePersonnel(newPersonnel);
-        }
-
-        AppState.instance.refresh();
-
-        if (mounted) {
-          Navigator.pop(context);
-          _loadPersonnel();
-        }
-      }
-    }
 
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text(personnel == null ? 'Thêm nhân sự' : 'Sửa nhân sự'),
-        content: Form(
-          key: formKey,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextFormField(
-                controller: nameController,
-                focusNode: nameFocus,
-                textInputAction: TextInputAction.next,
-                onFieldSubmitted: (_) =>
-                    FocusScope.of(context).requestFocus(salaryFocus),
-                decoration: const InputDecoration(
-                  labelText: 'Tên nhân sự',
-                  border: OutlineInputBorder(),
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: Text(personnel == null ? 'Thêm nhân sự' : 'Sửa nhân sự'),
+          content: SizedBox(
+            width: 420,
+            child: Form(
+              key: formKey,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // Tên nhân sự (required)
+                    TextFormField(
+                      controller: nameController,
+                      textInputAction: TextInputAction.next,
+                      decoration: const InputDecoration(
+                        labelText: 'Tên nhân sự *',
+                        border: OutlineInputBorder(),
+                        prefixIcon: Icon(Icons.person),
+                      ),
+                      validator: (value) {
+                        if (value == null || value.isEmpty) {
+                          return 'Vui lòng nhập tên';
+                        }
+                        return null;
+                      },
+                    ),
+                    const SizedBox(height: 14),
+                    // Lương cơ bản (required)
+                    TextFormField(
+                      controller: salaryController,
+                      textInputAction: TextInputAction.next,
+                      decoration: const InputDecoration(
+                        labelText: 'Mức lương cơ bản *',
+                        border: OutlineInputBorder(),
+                        suffixText: 'VNĐ',
+                        prefixIcon: Icon(Icons.payments),
+                      ),
+                      keyboardType: TextInputType.number,
+                      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                      validator: (value) {
+                        if (value == null || value.isEmpty) {
+                          return 'Vui lòng nhập mức lương';
+                        }
+                        if (double.tryParse(value) == null) {
+                          return 'Mức lương không hợp lệ';
+                        }
+                        return null;
+                      },
+                    ),
+                    const SizedBox(height: 14),
+                    // Ngày vào làm (not required) — date picker
+                    MouseRegion(
+                      cursor: SystemMouseCursors.click,
+                      child: GestureDetector(
+                        onTap: () async {
+                          final picked = await showDatePicker(
+                            context: context,
+                            initialDate: selectedStartDate ?? DateTime.now(),
+                            firstDate: DateTime(2000),
+                            lastDate: DateTime(2100),
+                            helpText: 'Chọn ngày vào làm',
+                          );
+                          if (picked != null) {
+                            setDialogState(() => selectedStartDate = picked);
+                          }
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 14),
+                          decoration: BoxDecoration(
+                            border: Border.all(color: Colors.grey.shade400),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Row(
+                            children: [
+                              const Icon(Icons.calendar_today,
+                                  size: 20, color: Colors.grey),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Text(
+                                  selectedStartDate != null
+                                      ? 'Ngày vào làm: ${_formatDate(selectedStartDate!)}'
+                                      : 'Ngày vào làm (không bắt buộc)',
+                                  style: TextStyle(
+                                    color: selectedStartDate != null
+                                        ? Colors.black87
+                                        : Colors.grey.shade600,
+                                  ),
+                                ),
+                              ),
+                              if (selectedStartDate != null)
+                                MouseRegion(
+                                  cursor: SystemMouseCursors.click,
+                                  child: GestureDetector(
+                                    onTap: () => setDialogState(
+                                        () => selectedStartDate = null),
+                                    child: const Icon(Icons.clear,
+                                        size: 18, color: Colors.grey),
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    // Bằng lái xe (not required)
+                    TextFormField(
+                      controller: driverLicenseController,
+                      textInputAction: TextInputAction.next,
+                      decoration: const InputDecoration(
+                        labelText: 'Bằng lái xe (không bắt buộc)',
+                        border: OutlineInputBorder(),
+                        prefixIcon: Icon(Icons.drive_eta),
+                        hintText: 'VD: B1, B2, C...',
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    // Tiền thế chân (not required)
+                    TextFormField(
+                      controller: depositController,
+                      textInputAction: TextInputAction.done,
+                      decoration: const InputDecoration(
+                        labelText: 'Tiền thế chân (không bắt buộc)',
+                        border: OutlineInputBorder(),
+                        suffixText: 'VNĐ',
+                        prefixIcon: Icon(Icons.security),
+                      ),
+                      keyboardType: TextInputType.number,
+                      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                    ),
+                  ],
                 ),
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return 'Vui lòng nhập tên';
-                  }
-                  return null;
-                },
               ),
-              const SizedBox(height: 16),
-              TextFormField(
-                controller: salaryController,
-                focusNode: salaryFocus,
-                textInputAction: TextInputAction.done,
-                onFieldSubmitted: (_) => onSave(),
-                decoration: const InputDecoration(
-                  labelText: 'Mức lương cơ bản',
-                  border: OutlineInputBorder(),
-                  suffixText: 'VNĐ',
-                ),
-                keyboardType: TextInputType.number,
-                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return 'Vui lòng nhập mức lương';
-                  }
-                  if (double.tryParse(value) == null) {
-                    return 'Mức lương không hợp lệ';
-                  }
-                  return null;
-                },
-              ),
-            ],
+            ),
           ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Hủy'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                if (formKey.currentState!.validate()) {
+                  final newPersonnel = Personnel(
+                    id: personnel?.id,
+                    name: nameController.text.trim(),
+                    basicSalary: double.parse(salaryController.text),
+                    isWorking: personnel?.isWorking ?? true,
+                    driverLicense: driverLicenseController.text.trim().isEmpty
+                        ? null
+                        : driverLicenseController.text.trim(),
+                    startDate: selectedStartDate,
+                    deposit: depositController.text.trim().isEmpty
+                        ? null
+                        : double.tryParse(depositController.text),
+                    createdAt: personnel?.createdAt ?? DateTime.now(),
+                  );
+
+                  if (personnel == null) {
+                    await _db.insertPersonnel(newPersonnel);
+                  } else {
+                    await _db.updatePersonnel(newPersonnel);
+                  }
+
+                  AppState.instance.refresh();
+
+                  if (mounted) {
+                    Navigator.pop(context);
+                    _loadPersonnel();
+                  }
+                }
+              },
+              child: Text(personnel == null ? 'Thêm' : 'Lưu'),
+            ),
+          ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Hủy'),
-          ),
-          ElevatedButton(
-            onPressed: onSave,
-            child: Text(personnel == null ? 'Thêm' : 'Lưu'),
-          ),
-        ],
       ),
     );
   }
@@ -179,6 +281,12 @@ class _PersonnelScreenState extends State<PersonnelScreen> {
     );
   }
 
+  Future<void> _toggleWorkingStatus(Personnel p) async {
+    await _db.togglePersonnelWorkingStatus(p.id!, !p.isWorking);
+    AppState.instance.refresh();
+    _loadPersonnel();
+  }
+
   String _formatCurrency(double amount) {
     return amount
         .toStringAsFixed(0)
@@ -188,37 +296,185 @@ class _PersonnelScreenState extends State<PersonnelScreen> {
         );
   }
 
+  String _formatDate(DateTime date) {
+    return '${date.day.toString().padLeft(2, '0')}/'
+        '${date.month.toString().padLeft(2, '0')}/'
+        '${date.year}';
+  }
+
+  Future<void> _exportToExcel() async {
+    final excel = xls.Excel.createExcel();
+    final String defaultSheet = excel.getDefaultSheet() ?? 'Sheet1';
+    excel.rename(defaultSheet, 'Danh sach nhan vien');
+    final sheet = excel['Danh sach nhan vien'];
+
+    // Header style
+    xls.CellStyle headerStyle = xls.CellStyle(
+      bold: true,
+      backgroundColorHex: xls.ExcelColor.fromHexString('#1565C0'),
+      fontColorHex: xls.ExcelColor.fromHexString('#FFFFFF'),
+      leftBorder: xls.Border(borderStyle: xls.BorderStyle.Thin),
+      rightBorder: xls.Border(borderStyle: xls.BorderStyle.Thin),
+      topBorder: xls.Border(borderStyle: xls.BorderStyle.Thin),
+      bottomBorder: xls.Border(borderStyle: xls.BorderStyle.Thin),
+      horizontalAlign: xls.HorizontalAlign.Center,
+    );
+
+    // Body style — working
+    xls.CellStyle bodyStyle = xls.CellStyle(
+      leftBorder: xls.Border(borderStyle: xls.BorderStyle.Thin),
+      rightBorder: xls.Border(borderStyle: xls.BorderStyle.Thin),
+      topBorder: xls.Border(borderStyle: xls.BorderStyle.Thin),
+      bottomBorder: xls.Border(borderStyle: xls.BorderStyle.Thin),
+    );
+
+    // Body style — resigned
+    xls.CellStyle resignedStyle = xls.CellStyle(
+      fontColorHex: xls.ExcelColor.fromHexString('#9E9E9E'),
+      backgroundColorHex: xls.ExcelColor.fromHexString('#F5F5F5'),
+      leftBorder: xls.Border(borderStyle: xls.BorderStyle.Thin),
+      rightBorder: xls.Border(borderStyle: xls.BorderStyle.Thin),
+      topBorder: xls.Border(borderStyle: xls.BorderStyle.Thin),
+      bottomBorder: xls.Border(borderStyle: xls.BorderStyle.Thin),
+    );
+
+    final headers = [
+      'STT',
+      'Họ tên nhân viên',
+      'Trạng thái',
+      'Lương cơ bản (VNĐ)',
+      'Ngày vào làm',
+      'Bằng lái xe',
+      'Tiền thế chân (VNĐ)',
+      'Ngày tạo',
+    ];
+
+    final colWidths = [6.0, 28.0, 15.0, 22.0, 16.0, 15.0, 22.0, 16.0];
+
+    for (int i = 0; i < headers.length; i++) {
+      final cell = sheet.cell(
+          xls.CellIndex.indexByColumnRow(columnIndex: i, rowIndex: 0));
+      cell.value = xls.TextCellValue(headers[i]);
+      cell.cellStyle = headerStyle;
+      sheet.setColumnWidth(i, colWidths[i]);
+    }
+
+    final list = _filtered;
+    for (int i = 0; i < list.length; i++) {
+      final p = list[i];
+      final rowIndex = i + 1;
+      final style = p.isWorking ? bodyStyle : resignedStyle;
+
+      void setCell(int col, xls.CellValue val) {
+        sheet.cell(xls.CellIndex.indexByColumnRow(
+            columnIndex: col, rowIndex: rowIndex))
+          ..value = val
+          ..cellStyle = style;
+      }
+
+      setCell(0, xls.TextCellValue('${i + 1}'));
+      setCell(1, xls.TextCellValue(p.name));
+      setCell(2, xls.TextCellValue(p.isWorking ? 'Đang làm việc' : 'Đã nghỉ việc'));
+      setCell(3, xls.TextCellValue(_formatCurrency(p.basicSalary)));
+      setCell(
+          4,
+          xls.TextCellValue(
+              p.startDate != null ? _formatDate(p.startDate!) : ''));
+      setCell(5, xls.TextCellValue(p.driverLicense ?? ''));
+      setCell(
+          6,
+          xls.TextCellValue(
+              p.deposit != null ? _formatCurrency(p.deposit!) : ''));
+      setCell(7, xls.TextCellValue(_formatDate(p.createdAt)));
+    }
+
+    final outputPath = await FilePicker.platform.saveFile(
+      dialogTitle: 'Lưu danh sách nhân viên',
+      fileName: 'Danh_sach_nhan_vien.xlsx',
+      type: FileType.custom,
+      allowedExtensions: ['xlsx'],
+    );
+
+    if (outputPath != null) {
+      final fileBytes = excel.save();
+      if (fileBytes != null) {
+        await File(outputPath).writeAsBytes(fileBytes);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: const Text('Xuất file Excel thành công!'),
+              backgroundColor: Colors.green,
+              duration: const Duration(seconds: 5),
+              action: SnackBarAction(
+                label: 'Mở file',
+                textColor: Colors.white,
+                onPressed: () => _openFile(outputPath),
+              ),
+            ),
+          );
+        }
+      }
+    }
+  }
+
+  Future<void> _openFile(String path) async {
+    try {
+      if (Platform.isWindows) {
+        await Process.run('cmd', ['/c', 'start', '""', path]);
+      } else if (Platform.isMacOS) {
+        await Process.run('open', [path]);
+      } else {
+        await Process.run('xdg-open', [path]);
+      }
+    } catch (_) {}
+  }
+
   @override
   Widget build(BuildContext context) {
     final filtered = _filtered;
     return Scaffold(
       body: Column(
         children: [
-          // Search bar
+          // Toolbar: search + export
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-            child: TextField(
-              controller: _searchController,
-              decoration: InputDecoration(
-                labelText: 'Tìm kiếm nhân viên',
-                hintText: 'Nhập tên...',
-                prefixIcon: const Icon(Icons.search),
-                border: const OutlineInputBorder(),
-                isDense: true,
-                suffixIcon: _searchQuery.isNotEmpty
-                    ? MouseRegion(
-                        cursor: SystemMouseCursors.click,
-                        child: IconButton(
-                          icon: const Icon(Icons.clear, size: 18),
-                          onPressed: () {
-                            _searchController.clear();
-                            setState(() => _searchQuery = '');
-                          },
-                        ),
-                      )
-                    : null,
-              ),
-              onChanged: (v) => setState(() => _searchQuery = v),
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _searchController,
+                    decoration: InputDecoration(
+                      labelText: 'Tìm kiếm nhân viên',
+                      hintText: 'Nhập tên...',
+                      prefixIcon: const Icon(Icons.search),
+                      border: const OutlineInputBorder(),
+                      isDense: true,
+                      suffixIcon: _searchQuery.isNotEmpty
+                          ? MouseRegion(
+                              cursor: SystemMouseCursors.click,
+                              child: IconButton(
+                                icon: const Icon(Icons.clear, size: 18),
+                                onPressed: () {
+                                  _searchController.clear();
+                                  setState(() => _searchQuery = '');
+                                },
+                              ),
+                            )
+                          : null,
+                    ),
+                    onChanged: (v) => setState(() => _searchQuery = v),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                MouseRegion(
+                  cursor: SystemMouseCursors.click,
+                  child: ElevatedButton.icon(
+                    onPressed: _personnel.isEmpty ? null : _exportToExcel,
+                    icon: const Icon(Icons.download),
+                    label: const Text('Xuất Excel'),
+                  ),
+                ),
+              ],
             ),
           ),
           const SizedBox(height: 8),
@@ -248,18 +504,175 @@ class _PersonnelScreenState extends State<PersonnelScreen> {
                         itemCount: filtered.length,
                         itemBuilder: (context, index) {
                           final p = filtered[index];
+                          final isResigned = !p.isWorking;
                           return Card(
                             margin: const EdgeInsets.only(bottom: 8),
                             child: ListTile(
                               leading: CircleAvatar(
-                                  child: Text(p.name[0].toUpperCase())),
-                              title: Text(p.name),
-                              subtitle: Text(
-                                'Lương cơ bản: ${_formatCurrency(p.basicSalary)} VNĐ',
+                                backgroundColor: isResigned
+                                    ? Colors.grey.shade300
+                                    : Theme.of(context).primaryColor,
+                                child: Text(
+                                  p.name[0].toUpperCase(),
+                                  style: TextStyle(
+                                    color: isResigned
+                                        ? Colors.grey.shade600
+                                        : Colors.white,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
                               ),
+                              title: Row(
+                                children: [
+                                  Text(
+                                    p.name,
+                                    style: TextStyle(
+                                      color: isResigned
+                                          ? Colors.grey.shade500
+                                          : null,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  if (isResigned)
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 6, vertical: 2),
+                                      decoration: BoxDecoration(
+                                        color: Colors.grey.shade200,
+                                        borderRadius: BorderRadius.circular(4),
+                                        border: Border.all(
+                                            color: Colors.grey.shade400),
+                                      ),
+                                      child: Text(
+                                        'Đã nghỉ',
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          color: Colors.grey.shade600,
+                                        ),
+                                      ),
+                                    ),
+                                ],
+                              ),
+                              subtitle: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Lương cơ bản: ${_formatCurrency(p.basicSalary)} VNĐ',
+                                    style: TextStyle(
+                                        color: isResigned
+                                            ? Colors.grey.shade400
+                                            : null),
+                                  ),
+                                  Row(
+                                    children: [
+                                      if (p.startDate != null) ...[
+                                        Icon(Icons.calendar_today,
+                                            size: 12,
+                                            color: Colors.grey.shade500),
+                                        const SizedBox(width: 3),
+                                        Text(
+                                          'Vào làm: ${_formatDate(p.startDate!)}',
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            color: Colors.grey.shade600,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 10),
+                                      ],
+                                      if (p.driverLicense != null &&
+                                          p.driverLicense!.isNotEmpty) ...[
+                                        Icon(Icons.drive_eta,
+                                            size: 12,
+                                            color: Colors.grey.shade500),
+                                        const SizedBox(width: 3),
+                                        Text(
+                                          'Bằng: ${p.driverLicense}',
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            color: Colors.grey.shade600,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 10),
+                                      ],
+                                      if (p.deposit != null) ...[
+                                        Icon(Icons.security,
+                                            size: 12,
+                                            color: Colors.grey.shade500),
+                                        const SizedBox(width: 3),
+                                        Text(
+                                          'Thế chân: ${_formatCurrency(p.deposit!)} VNĐ',
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            color: Colors.grey.shade600,
+                                          ),
+                                        ),
+                                      ],
+                                    ],
+                                  ),
+                                ],
+                              ),
+                              isThreeLine: true,
                               trailing: Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
+                                  // Quick-switch working status
+                                  Tooltip(
+                                    message: isResigned
+                                        ? 'Đánh dấu đang làm việc'
+                                        : 'Đánh dấu đã nghỉ việc',
+                                    child: MouseRegion(
+                                      cursor: SystemMouseCursors.click,
+                                      child: InkWell(
+                                        borderRadius: BorderRadius.circular(20),
+                                        onTap: () => _toggleWorkingStatus(p),
+                                        child: Container(
+                                          padding: const EdgeInsets.symmetric(
+                                              horizontal: 10, vertical: 5),
+                                          decoration: BoxDecoration(
+                                            color: isResigned
+                                                ? Colors.grey.shade100
+                                                : Colors.green.shade50,
+                                            borderRadius:
+                                                BorderRadius.circular(20),
+                                            border: Border.all(
+                                              color: isResigned
+                                                  ? Colors.grey.shade400
+                                                  : Colors.green.shade400,
+                                            ),
+                                          ),
+                                          child: Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Icon(
+                                                isResigned
+                                                    ? Icons.work_off
+                                                    : Icons.work,
+                                                size: 14,
+                                                color: isResigned
+                                                    ? Colors.grey.shade600
+                                                    : Colors.green.shade700,
+                                              ),
+                                              const SizedBox(width: 4),
+                                              Text(
+                                                isResigned
+                                                    ? 'Đã nghỉ'
+                                                    : 'Đang làm',
+                                                style: TextStyle(
+                                                  fontSize: 12,
+                                                  color: isResigned
+                                                      ? Colors.grey.shade600
+                                                      : Colors.green.shade700,
+                                                  fontWeight: FontWeight.w500,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 4),
                                   MouseRegion(
                                     cursor: SystemMouseCursors.click,
                                     child: IconButton(
@@ -267,6 +680,7 @@ class _PersonnelScreenState extends State<PersonnelScreen> {
                                           color: Colors.blue),
                                       onPressed: () =>
                                           _showAddEditDialog(personnel: p),
+                                      tooltip: 'Sửa',
                                     ),
                                   ),
                                   MouseRegion(
@@ -275,6 +689,7 @@ class _PersonnelScreenState extends State<PersonnelScreen> {
                                       icon: const Icon(Icons.delete,
                                           color: Colors.red),
                                       onPressed: () => _deletePersonnel(p),
+                                      tooltip: 'Xóa',
                                     ),
                                   ),
                                 ],

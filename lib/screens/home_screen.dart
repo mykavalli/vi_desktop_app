@@ -50,9 +50,11 @@ class _HomeScreenState extends State<HomeScreen> {
       appBar: AppBar(
         title: Text(_titles[_selectedIndex]),
         actions: [
-          PopupMenuButton<int>(
-            icon: const Icon(Icons.menu),
-            tooltip: 'Menu',
+          MouseRegion(
+            cursor: SystemMouseCursors.click,
+            child: PopupMenuButton<int>(
+              icon: const Icon(Icons.menu),
+              tooltip: 'Menu',
             onSelected: (value) {
               if (value == 8) {
                 Navigator.of(context).pushReplacement(
@@ -156,6 +158,7 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ],
           ),
+          ),
           const SizedBox(width: 16),
         ],
       ),
@@ -222,6 +225,24 @@ class _DashboardView extends StatelessWidget {
                 title: 'Chấm công',
                 color: Colors.purple,
                 onTap: () => onNavigate(4),
+              ),
+              _QuickActionCard(
+                icon: Icons.list_alt,
+                title: 'Chi tiết CC',
+                color: Colors.teal,
+                onTap: () => onNavigate(5),
+              ),
+              _QuickActionCard(
+                icon: Icons.summarize,
+                title: 'Tổng hợp CC',
+                color: Colors.indigo,
+                onTap: () => onNavigate(6),
+              ),
+              _QuickActionCard(
+                icon: Icons.settings,
+                title: 'Tài khoản',
+                color: Colors.blueGrey,
+                onTap: () => onNavigate(7),
               ),
             ],
           ),

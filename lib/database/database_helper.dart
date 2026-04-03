@@ -24,7 +24,7 @@ class DatabaseHelper {
 
     return await openDatabase(
       path,
-      version: 2,
+      version: 3,
       onCreate: _createDB,
       onUpgrade: _upgradeDB,
     );
@@ -45,6 +45,10 @@ class DatabaseHelper {
         name TEXT NOT NULL,
         basic_salary REAL NOT NULL,
         is_active INTEGER DEFAULT 1,
+        is_working INTEGER DEFAULT 1,
+        driver_license TEXT,
+        start_date TEXT,
+        deposit REAL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     ''');
@@ -95,6 +99,22 @@ class DatabaseHelper {
         // Column might already exist in some edge cases
       }
     }
+    if (oldVersion < 3) {
+      // Add new personnel columns
+      final newCols = [
+        "ALTER TABLE personnel ADD COLUMN is_working INTEGER DEFAULT 1",
+        "ALTER TABLE personnel ADD COLUMN driver_license TEXT",
+        "ALTER TABLE personnel ADD COLUMN start_date TEXT",
+        "ALTER TABLE personnel ADD COLUMN deposit REAL",
+      ];
+      for (final sql in newCols) {
+        try {
+          await db.execute(sql);
+        } catch (_) {
+          // Column might already exist
+        }
+      }
+    }
   }
 
   // ==================== USER OPERATIONS ====================
@@ -132,13 +152,32 @@ class DatabaseHelper {
     return await db.insert('personnel', personnel.toMap());
   }
 
-  Future<List<Personnel>> getAllPersonnel({bool activeOnly = true}) async {
+  /// [activeOnly] excludes soft-deleted records (is_active=0)
+  /// [workingOnly] excludes resigned employees (is_working=0) — used for timekeeping dropdowns
+  Future<List<Personnel>> getAllPersonnel({
+    bool activeOnly = true,
+    bool workingOnly = false,
+  }) async {
     final db = await database;
+    String? where;
+    List<dynamic>? whereArgs;
+
+    if (activeOnly && workingOnly) {
+      where = 'is_active = ? AND is_working = ?';
+      whereArgs = [1, 1];
+    } else if (activeOnly) {
+      where = 'is_active = ?';
+      whereArgs = [1];
+    } else if (workingOnly) {
+      where = 'is_working = ?';
+      whereArgs = [1];
+    }
+
     final maps = await db.query(
       'personnel',
-      where: activeOnly ? 'is_active = ?' : null,
-      whereArgs: activeOnly ? [1] : null,
-      orderBy: 'name ASC',
+      where: where,
+      whereArgs: whereArgs,
+      orderBy: 'is_working DESC, name ASC',
     );
     return maps.map((map) => Personnel.fromMap(map)).toList();
   }
@@ -157,6 +196,16 @@ class DatabaseHelper {
       personnel.toMap(),
       where: 'id = ?',
       whereArgs: [personnel.id],
+    );
+  }
+
+  Future<int> togglePersonnelWorkingStatus(int id, bool isWorking) async {
+    final db = await database;
+    return await db.update(
+      'personnel',
+      {'is_working': isWorking ? 1 : 0},
+      where: 'id = ?',
+      whereArgs: [id],
     );
   }
 
@@ -305,6 +354,7 @@ class DatabaseHelper {
         t.id as timekeeping_id,
         t.personnel_id,
         p.name as personnel_name,
+        p.is_working as personnel_is_working,
         t.date,
         t.job_position_id,
         jp.name as job_position_name,
@@ -345,6 +395,7 @@ class DatabaseHelper {
         t.personnel_id,
         t.job_position_id,
         p.name as personnel_name,
+        p.is_working as personnel_is_working,
         p.basic_salary as basic_salary,
         jp.salary as position_salary,
         jp.name as position_name,
@@ -370,12 +421,14 @@ class DatabaseHelper {
       final tpName = row['transaction_point_name'] as String;
       final date = row['date'] as String;
       final dayStatus = row['day_status'] as String? ?? DayStatus.work;
+      final isWorking = (row['personnel_is_working'] as int? ?? 1) == 1;
 
       if (!summaryMap.containsKey(pId)) {
         summaryMap[pId] = {
           'personnel_id': pId,
           'personnel_name': personnelName,
           'basic_salary': basicSalary,
+          'is_working': isWorking,
           // Map<jobPositionId, {salary, uniqueDates: Set<String>}>
           'positions': <int, Map<String, dynamic>>{},
           // Map<tpName, Set<date>> — for display column per transaction point
@@ -439,6 +492,7 @@ class DatabaseHelper {
       return TimekeepingSummary(
         personnelId: data['personnel_id'],
         personnelName: data['personnel_name'],
+        isWorking: data['is_working'] as bool,
         totalDays: totalDays,
         totalDaysOff: totalDaysOff,
         totalDaysUnauth: totalDaysUnauth,

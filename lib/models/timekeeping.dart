@@ -73,6 +73,7 @@ class TimekeepingDetail {
   final int timekeepingId;
   final int personnelId;
   final String personnelName;
+  final bool personnelIsWorking;
   final DateTime date;
   final int jobPositionId;
   final String jobPositionName;
@@ -84,6 +85,7 @@ class TimekeepingDetail {
     required this.timekeepingId,
     required this.personnelId,
     required this.personnelName,
+    this.personnelIsWorking = true,
     required this.date,
     required this.jobPositionId,
     required this.jobPositionName,
@@ -97,6 +99,7 @@ class TimekeepingDetail {
       timekeepingId: map['timekeeping_id'],
       personnelId: map['personnel_id'],
       personnelName: map['personnel_name'],
+      personnelIsWorking: (map['personnel_is_working'] as int? ?? 1) == 1,
       date: DateTime.parse(map['date']),
       jobPositionId: map['job_position_id'],
       jobPositionName: map['job_position_name'],
@@ -110,6 +113,7 @@ class TimekeepingDetail {
 class TimekeepingSummary {
   final int personnelId;
   final String personnelName;
+  final bool isWorking;
   final int totalDays;       // work days only
   final int totalDaysOff;    // phep days
   final int totalDaysUnauth; // kphep days
@@ -119,6 +123,7 @@ class TimekeepingSummary {
   TimekeepingSummary({
     required this.personnelId,
     required this.personnelName,
+    this.isWorking = true,
     required this.totalDays,
     this.totalDaysOff = 0,
     this.totalDaysUnauth = 0,
