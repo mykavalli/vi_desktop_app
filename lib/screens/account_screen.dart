@@ -15,6 +15,10 @@ class _AccountScreenState extends State<AccountScreen> {
   final _confirmPasswordController = TextEditingController();
   final _formKey = GlobalKey<FormState>();
 
+  final _oldPasswordFocus = FocusNode();
+  final _newPasswordFocus = FocusNode();
+  final _confirmPasswordFocus = FocusNode();
+
   bool _isOldPasswordVisible = false;
   bool _isNewPasswordVisible = false;
   bool _isConfirmPasswordVisible = false;
@@ -25,6 +29,9 @@ class _AccountScreenState extends State<AccountScreen> {
     _oldPasswordController.dispose();
     _newPasswordController.dispose();
     _confirmPasswordController.dispose();
+    _oldPasswordFocus.dispose();
+    _newPasswordFocus.dispose();
+    _confirmPasswordFocus.dispose();
     super.dispose();
   }
 
@@ -98,6 +105,10 @@ class _AccountScreenState extends State<AccountScreen> {
                     children: [
                       TextFormField(
                         controller: _oldPasswordController,
+                        focusNode: _oldPasswordFocus,
+                        textInputAction: TextInputAction.next,
+                        onFieldSubmitted: (_) =>
+                            FocusScope.of(context).requestFocus(_newPasswordFocus),
                         obscureText: !_isOldPasswordVisible,
                         decoration: InputDecoration(
                           labelText: 'Mật khẩu cũ',
@@ -126,6 +137,10 @@ class _AccountScreenState extends State<AccountScreen> {
                       const SizedBox(height: 16),
                       TextFormField(
                         controller: _newPasswordController,
+                        focusNode: _newPasswordFocus,
+                        textInputAction: TextInputAction.next,
+                        onFieldSubmitted: (_) =>
+                            FocusScope.of(context).requestFocus(_confirmPasswordFocus),
                         obscureText: !_isNewPasswordVisible,
                         decoration: InputDecoration(
                           labelText: 'Mật khẩu mới',
@@ -157,6 +172,9 @@ class _AccountScreenState extends State<AccountScreen> {
                       const SizedBox(height: 16),
                       TextFormField(
                         controller: _confirmPasswordController,
+                        focusNode: _confirmPasswordFocus,
+                        textInputAction: TextInputAction.done,
+                        onFieldSubmitted: (_) => _changePassword(),
                         obscureText: !_isConfirmPasswordVisible,
                         decoration: InputDecoration(
                           labelText: 'Xác nhận mật khẩu mới',

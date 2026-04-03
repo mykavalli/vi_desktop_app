@@ -18,20 +18,18 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   int _selectedIndex = 0;
 
+  void _navigate(int index) {
+    setState(() => _selectedIndex = index);
+  }
+
   List<Widget> get _screens => [
-    _DashboardView(
-      onNavigate: (index) {
-        setState(() {
-          _selectedIndex = index;
-        });
-      },
-    ),
+    _DashboardView(onNavigate: _navigate),
     const PersonnelScreen(),
     const JobPositionScreen(),
     const TransactionPointScreen(),
     const TimekeepingScreen(),
     const TimekeepingDetailScreen(),
-    const TimekeepingSummaryScreen(),
+    TimekeepingSummaryScreen(onNavigate: _navigate),
     const AccountScreen(),
   ];
 

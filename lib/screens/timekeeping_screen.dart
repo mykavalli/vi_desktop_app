@@ -4,21 +4,27 @@ import '../models/personnel.dart';
 import '../models/job_position.dart';
 import '../models/transaction_point.dart';
 import '../models/timekeeping.dart';
+import '../state/app_state.dart';
 
+/// Per-day status for a row: null = not set (absent), or DayStatus value
 class TimekeepingRow {
   int personnelId;
   int jobPositionId;
   int transactionPointId;
-  Set<int> daysChecked;
+  /// day number (1-31) → status string ('work', 'phep', 'kphep')
+  Map<int, String> dayStatus;
 
   TimekeepingRow({
     required this.personnelId,
     required this.jobPositionId,
     required this.transactionPointId,
-    required this.daysChecked,
+    required this.dayStatus,
   });
 
   String get key => '${personnelId}_${jobPositionId}_${transactionPointId}';
+
+  /// Backward compat: days that have any status (non-absent)
+  Set<int> get daysActive => dayStatus.keys.toSet();
 }
 
 class TimekeepingScreen extends StatefulWidget {
@@ -46,6 +52,33 @@ class _TimekeepingScreenState extends State<TimekeepingScreen> {
   void initState() {
     super.initState();
     _loadData();
+    AppState.instance.dataVersion.addListener(_onDataChanged);
+  }
+
+  @override
+  void dispose() {
+    AppState.instance.dataVersion.removeListener(_onDataChanged);
+    _horizontalScrollController.dispose();
+    _verticalScrollController.dispose();
+    super.dispose();
+  }
+
+  void _onDataChanged() {
+    // Reload personnel/positions/points lists when other screens add data
+    _loadMasterData();
+  }
+
+  Future<void> _loadMasterData() async {
+    final personnel = await _db.getAllPersonnel();
+    final jobs = await _db.getAllJobPositions();
+    final points = await _db.getAllTransactionPoints();
+    if (mounted) {
+      setState(() {
+        _personnelList = personnel;
+        _jobPositions = jobs;
+        _transactionPoints = points;
+      });
+    }
   }
 
   Future<void> _loadData() async {
@@ -68,37 +101,40 @@ class _TimekeepingScreenState extends State<TimekeepingScreen> {
 
     Map<String, TimekeepingRow> rowMap = {};
     for (var tk in timekeepings) {
-      String key = '${tk.personnelId}_${tk.jobPositionId}_${tk.transactionPointId}';
+      String key =
+          '${tk.personnelId}_${tk.jobPositionId}_${tk.transactionPointId}';
       if (!rowMap.containsKey(key)) {
         rowMap[key] = TimekeepingRow(
           personnelId: tk.personnelId,
           jobPositionId: tk.jobPositionId,
           transactionPointId: tk.transactionPointId,
-          daysChecked: {},
+          dayStatus: {},
         );
       }
-      rowMap[key]!.daysChecked.add(tk.date.day);
+      rowMap[key]!.dayStatus[tk.date.day] = tk.dayStatus;
     }
-    
+
     _rows = rowMap.values.toList();
   }
 
   Future<void> _saveData() async {
     setState(() => _isLoading = true);
     try {
-      // 1. Delete all for this month
-      await _db.deleteTimekeepingByMonth(year: _selectedYear, month: _selectedMonth);
+      await _db.deleteTimekeepingByMonth(
+        year: _selectedYear,
+        month: _selectedMonth,
+      );
 
-      // 2. Insert checked ones
       List<Timekeeping> newRecords = [];
       for (var row in _rows) {
-        for (var day in row.daysChecked) {
+        for (var entry in row.dayStatus.entries) {
           newRecords.add(Timekeeping(
             personnelId: row.personnelId,
-            date: DateTime(_selectedYear, _selectedMonth, day),
+            date: DateTime(_selectedYear, _selectedMonth, entry.key),
             jobPositionId: row.jobPositionId,
             transactionPointId: row.transactionPointId,
             createdAt: DateTime.now(),
+            dayStatus: entry.value,
           ));
         }
       }
@@ -106,16 +142,22 @@ class _TimekeepingScreenState extends State<TimekeepingScreen> {
       if (newRecords.isNotEmpty) {
         await _db.insertMultipleTimekeeping(newRecords);
       }
-      
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Đã lưu dữ liệu chấm công thành công')),
+          const SnackBar(
+            content: Text('Đã lưu dữ liệu chấm công thành công'),
+            backgroundColor: Colors.green,
+          ),
         );
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Lỗi khi lưu: $e'), backgroundColor: Colors.red),
+          SnackBar(
+            content: Text('Lỗi khi lưu: $e'),
+            backgroundColor: Colors.red,
+          ),
         );
       }
     } finally {
@@ -145,7 +187,8 @@ class _TimekeepingScreenState extends State<TimekeepingScreen> {
                 items: _personnelList.map((p) {
                   return DropdownMenuItem(value: p, child: Text(p.name));
                 }).toList(),
-                onChanged: (value) => setDialogState(() => selectedPersonnel = value),
+                onChanged: (value) =>
+                    setDialogState(() => selectedPersonnel = value),
               ),
               const SizedBox(height: 16),
               DropdownButtonFormField<JobPosition>(
@@ -157,7 +200,8 @@ class _TimekeepingScreenState extends State<TimekeepingScreen> {
                 items: _jobPositions.map((jp) {
                   return DropdownMenuItem(value: jp, child: Text(jp.name));
                 }).toList(),
-                onChanged: (value) => setDialogState(() => selectedPosition = value),
+                onChanged: (value) =>
+                    setDialogState(() => selectedPosition = value),
               ),
               const SizedBox(height: 16),
               DropdownButtonFormField<TransactionPoint>(
@@ -169,7 +213,8 @@ class _TimekeepingScreenState extends State<TimekeepingScreen> {
                 items: _transactionPoints.map((tp) {
                   return DropdownMenuItem(value: tp, child: Text(tp.name));
                 }).toList(),
-                onChanged: (value) => setDialogState(() => selectedPoint = value),
+                onChanged: (value) =>
+                    setDialogState(() => selectedPoint = value),
               ),
             ],
           ),
@@ -179,17 +224,20 @@ class _TimekeepingScreenState extends State<TimekeepingScreen> {
               child: const Text('Hủy'),
             ),
             ElevatedButton(
-              onPressed: (selectedPersonnel == null || selectedPosition == null || selectedPoint == null)
+              onPressed: (selectedPersonnel == null ||
+                      selectedPosition == null ||
+                      selectedPoint == null)
                   ? null
                   : () {
-                      final key = '${selectedPersonnel!.id}_${selectedPosition!.id}_${selectedPoint!.id}';
+                      final key =
+                          '${selectedPersonnel!.id}_${selectedPosition!.id}_${selectedPoint!.id}';
                       if (!_rows.any((r) => r.key == key)) {
                         setState(() {
                           _rows.add(TimekeepingRow(
                             personnelId: selectedPersonnel!.id!,
                             jobPositionId: selectedPosition!.id!,
                             transactionPointId: selectedPoint!.id!,
-                            daysChecked: {},
+                            dayStatus: {},
                           ));
                         });
                       }
@@ -204,26 +252,121 @@ class _TimekeepingScreenState extends State<TimekeepingScreen> {
   }
 
   String _getPersonnelName(int id) {
-    return _personnelList.firstWhere((p) => p.id == id, orElse: () => Personnel(name: 'N/A', basicSalary: 0, createdAt: DateTime.now())).name;
+    return _personnelList
+        .firstWhere(
+          (p) => p.id == id,
+          orElse: () =>
+              Personnel(name: 'N/A', basicSalary: 0, createdAt: DateTime.now()),
+        )
+        .name;
   }
 
   String _getJobPositionName(int id) {
-    return _jobPositions.firstWhere((j) => j.id == id, orElse: () => JobPosition(name: 'N/A', salary: 0, createdAt: DateTime.now())).name;
+    return _jobPositions
+        .firstWhere(
+          (j) => j.id == id,
+          orElse: () =>
+              JobPosition(name: 'N/A', salary: 0, createdAt: DateTime.now()),
+        )
+        .name;
   }
 
   String _getTransactionPointName(int id) {
-    return _transactionPoints.firstWhere((t) => t.id == id, orElse: () => TransactionPoint(name: 'N/A', createdAt: DateTime.now())).name;
+    return _transactionPoints
+        .firstWhere(
+          (t) => t.id == id,
+          orElse: () =>
+              TransactionPoint(name: 'N/A', createdAt: DateTime.now()),
+        )
+        .name;
+  }
+
+  /// Cycle: null → work → phep → kphep → null
+  void _cycleStatus(TimekeepingRow row, int day) {
+    setState(() {
+      final current = row.dayStatus[day];
+      if (current == null) {
+        row.dayStatus[day] = DayStatus.work;
+      } else if (current == DayStatus.work) {
+        row.dayStatus[day] = DayStatus.phep;
+      } else if (current == DayStatus.phep) {
+        row.dayStatus[day] = DayStatus.kphep;
+      } else {
+        row.dayStatus.remove(day);
+      }
+    });
+  }
+
+  Widget _buildDayCell(TimekeepingRow row, int day) {
+    final status = row.dayStatus[day];
+
+    if (status == null) {
+      // Empty — click to start cycling
+      return InkWell(
+        onTap: () => _cycleStatus(row, day),
+        borderRadius: BorderRadius.circular(4),
+        child: const SizedBox(width: 36, height: 32),
+      );
+    }
+
+    Color bgColor;
+    Color textColor;
+    String label;
+
+    switch (status) {
+      case DayStatus.work:
+        bgColor = Colors.green.shade100;
+        textColor = Colors.green.shade800;
+        label = '✓';
+        break;
+      case DayStatus.phep:
+        bgColor = Colors.blue.shade100;
+        textColor = Colors.blue.shade800;
+        label = 'P';
+        break;
+      case DayStatus.kphep:
+        bgColor = Colors.orange.shade100;
+        textColor = Colors.orange.shade900;
+        label = 'K';
+        break;
+      default:
+        bgColor = Colors.green.shade100;
+        textColor = Colors.green.shade800;
+        label = '✓';
+    }
+
+    return Tooltip(
+      message: status == DayStatus.work
+          ? 'Đi làm'
+          : status == DayStatus.phep
+              ? 'Nghỉ phép'
+              : 'Nghỉ không phép',
+      child: InkWell(
+        onTap: () => _cycleStatus(row, day),
+        borderRadius: BorderRadius.circular(4),
+        child: Container(
+          width: 36,
+          height: 28,
+          decoration: BoxDecoration(
+            color: bgColor,
+            borderRadius: BorderRadius.circular(4),
+          ),
+          alignment: Alignment.center,
+          child: Text(
+            label,
+            style: TextStyle(
+              color: textColor,
+              fontSize: 13,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   final ScrollController _horizontalScrollController = ScrollController();
   final ScrollController _verticalScrollController = ScrollController();
-
-  @override
-  void dispose() {
-    _horizontalScrollController.dispose();
-    _verticalScrollController.dispose();
-    super.dispose();
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -273,6 +416,31 @@ class _TimekeepingScreenState extends State<TimekeepingScreen> {
                     setState(() => _isLoading = false);
                   },
                 ),
+                const SizedBox(width: 16),
+                // Legend
+                _StatusBadge(
+                  color: Colors.green.shade100,
+                  textColor: Colors.green.shade800,
+                  label: '✓',
+                  tooltip: 'Đi làm',
+                ),
+                const SizedBox(width: 4),
+                _StatusBadge(
+                  color: Colors.blue.shade100,
+                  textColor: Colors.blue.shade800,
+                  label: 'P',
+                  tooltip: 'Nghỉ Phép',
+                ),
+                const SizedBox(width: 4),
+                _StatusBadge(
+                  color: Colors.orange.shade100,
+                  textColor: Colors.orange.shade900,
+                  label: 'K',
+                  tooltip: 'Nghỉ K Phép',
+                ),
+                const SizedBox(width: 8),
+                Text('← Click để chuyển trạng thái',
+                    style: TextStyle(fontSize: 12, color: Colors.grey[600])),
                 const Spacer(),
                 ElevatedButton.icon(
                   onPressed: _showAddRowDialog,
@@ -283,7 +451,9 @@ class _TimekeepingScreenState extends State<TimekeepingScreen> {
                 ElevatedButton.icon(
                   onPressed: _saveData,
                   icon: const Icon(Icons.save),
-                  style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white),
+                  style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.green,
+                      foregroundColor: Colors.white),
                   label: const Text('Lưu lại'),
                 ),
               ],
@@ -296,7 +466,8 @@ class _TimekeepingScreenState extends State<TimekeepingScreen> {
                     ? Center(
                         child: Text(
                           'Chưa có dữ liệu chấm công. Hãy thêm dòng mới.',
-                          style: TextStyle(fontSize: 18, color: Colors.grey[600]),
+                          style: TextStyle(
+                              fontSize: 18, color: Colors.grey[600]),
                         ),
                       )
                     : Scrollbar(
@@ -307,97 +478,152 @@ class _TimekeepingScreenState extends State<TimekeepingScreen> {
                           scrollDirection: Axis.horizontal,
                           child: SingleChildScrollView(
                             controller: _verticalScrollController,
-                          child: DataTable(
-                            border: TableBorder.all(color: Colors.grey.shade300),
-                            columnSpacing: 16,
-                            dataRowMinHeight: 40,
-                            dataRowMaxHeight: 48,
-                            headingRowHeight: 40,
-                            headingRowColor: MaterialStateProperty.all(Colors.blue[50]),
-                            columns: [
-                              const DataColumn(label: Text('Nhân sự', style: TextStyle(fontWeight: FontWeight.bold))),
-                              const DataColumn(label: Text('Vị trí', style: TextStyle(fontWeight: FontWeight.bold))),
-                              const DataColumn(label: Text('Điểm GD', style: TextStyle(fontWeight: FontWeight.bold))),
-                              ...List.generate(daysInMonth, (index) {
-                                final day = index + 1;
-                                final date = DateTime(_selectedYear, _selectedMonth, day);
-                                final isWeekend = date.weekday == DateTime.sunday;
-                                return DataColumn(
-                                  label: Text(
-                                    '$day',
-                                    style: TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                      color: isWeekend ? Colors.red : null,
+                            child: DataTable(
+                              border: TableBorder.all(
+                                  color: Colors.grey.shade300),
+                              columnSpacing: 8,
+                              dataRowMinHeight: 40,
+                              dataRowMaxHeight: 48,
+                              headingRowHeight: 40,
+                              headingRowColor: MaterialStateProperty.all(
+                                  Colors.blue[50]),
+                              columns: [
+                                const DataColumn(
+                                    label: Text('Nhân sự',
+                                        style: TextStyle(
+                                            fontWeight: FontWeight.bold))),
+                                const DataColumn(
+                                    label: Text('Vị trí',
+                                        style: TextStyle(
+                                            fontWeight: FontWeight.bold))),
+                                const DataColumn(
+                                    label: Text('Điểm GD',
+                                        style: TextStyle(
+                                            fontWeight: FontWeight.bold))),
+                                ...List.generate(daysInMonth, (index) {
+                                  final day = index + 1;
+                                  final date = DateTime(
+                                      _selectedYear, _selectedMonth, day);
+                                  final isWeekend =
+                                      date.weekday == DateTime.sunday;
+                                  return DataColumn(
+                                    label: Text(
+                                      '$day',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        color:
+                                            isWeekend ? Colors.red : null,
+                                      ),
                                     ),
-                                  ),
-                                );
-                              }),
-                              const DataColumn(label: Text('Thao tác', style: TextStyle(fontWeight: FontWeight.bold))),
-                            ],
-                            rows: _rows.map((row) {
-                              return DataRow(
-                                cells: [
-                                  DataCell(Text(_getPersonnelName(row.personnelId))),
-                                  DataCell(
-                                    DropdownButton<int>(
-                                      value: row.jobPositionId,
-                                      underline: const SizedBox(),
-                                      items: _jobPositions.map((jp) {
-                                        return DropdownMenuItem(value: jp.id, child: Text(jp.name));
-                                      }).toList(),
-                                      onChanged: (val) {
-                                        if (val != null) setState(() => row.jobPositionId = val);
-                                      },
-                                    ),
-                                  ),
-                                  DataCell(
-                                    DropdownButton<int>(
-                                      value: row.transactionPointId,
-                                      underline: const SizedBox(),
-                                      items: _transactionPoints.map((tp) {
-                                        return DropdownMenuItem(value: tp.id, child: Text(tp.name));
-                                      }).toList(),
-                                      onChanged: (val) {
-                                        if (val != null) setState(() => row.transactionPointId = val);
-                                      },
-                                    ),
-                                  ),
-                                  ...List.generate(daysInMonth, (index) {
-                                    final day = index + 1;
-                                    return DataCell(
-                                      Checkbox(
-                                        value: row.daysChecked.contains(day),
+                                  );
+                                }),
+                                const DataColumn(
+                                    label: Text('Thao tác',
+                                        style: TextStyle(
+                                            fontWeight: FontWeight.bold))),
+                              ],
+                              rows: _rows.map((row) {
+                                return DataRow(
+                                  cells: [
+                                    DataCell(Text(
+                                        _getPersonnelName(row.personnelId))),
+                                    DataCell(
+                                      DropdownButton<int>(
+                                        value: row.jobPositionId,
+                                        underline: const SizedBox(),
+                                        items: _jobPositions.map((jp) {
+                                          return DropdownMenuItem(
+                                              value: jp.id,
+                                              child: Text(jp.name));
+                                        }).toList(),
                                         onChanged: (val) {
+                                          if (val != null) {
+                                            setState(
+                                                () => row.jobPositionId = val);
+                                          }
+                                        },
+                                      ),
+                                    ),
+                                    DataCell(
+                                      DropdownButton<int>(
+                                        value: row.transactionPointId,
+                                        underline: const SizedBox(),
+                                        items: _transactionPoints.map((tp) {
+                                          return DropdownMenuItem(
+                                              value: tp.id,
+                                              child: Text(tp.name));
+                                        }).toList(),
+                                        onChanged: (val) {
+                                          if (val != null) {
+                                            setState(() =>
+                                                row.transactionPointId = val);
+                                          }
+                                        },
+                                      ),
+                                    ),
+                                    ...List.generate(daysInMonth, (index) {
+                                      final day = index + 1;
+                                      return DataCell(
+                                          _buildDayCell(row, day));
+                                    }),
+                                    DataCell(
+                                      IconButton(
+                                        icon: const Icon(Icons.delete,
+                                            color: Colors.red),
+                                        onPressed: () {
                                           setState(() {
-                                            if (val == true) {
-                                              row.daysChecked.add(day);
-                                            } else {
-                                              row.daysChecked.remove(day);
-                                            }
+                                            _rows.remove(row);
                                           });
                                         },
                                       ),
-                                    );
-                                  }),
-                                  DataCell(
-                                    IconButton(
-                                      icon: const Icon(Icons.delete, color: Colors.red),
-                                      onPressed: () {
-                                        setState(() {
-                                          _rows.remove(row);
-                                        });
-                                      },
                                     ),
-                                  ),
-                                ],
-                              );
-                            }).toList(),
+                                  ],
+                                );
+                              }).toList(),
+                            ),
                           ),
                         ),
                       ),
-                    ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _StatusBadge extends StatelessWidget {
+  final Color color;
+  final Color textColor;
+  final String label;
+  final String tooltip;
+
+  const _StatusBadge({
+    required this.color,
+    required this.textColor,
+    required this.label,
+    required this.tooltip,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: tooltip,
+      child: Container(
+        width: 28,
+        height: 24,
+        decoration: BoxDecoration(
+          color: color,
+          borderRadius: BorderRadius.circular(4),
+        ),
+        alignment: Alignment.center,
+        child: Text(
+          label,
+          style: TextStyle(
+            color: textColor,
+            fontSize: 12,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
       ),
     );
   }

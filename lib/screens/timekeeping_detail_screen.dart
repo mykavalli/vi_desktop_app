@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import '../database/database_helper.dart';
 import '../models/personnel.dart';
 import '../models/timekeeping.dart';
+import '../state/app_state.dart';
 
 class TimekeepingDetailScreen extends StatefulWidget {
   const TimekeepingDetailScreen({super.key});
@@ -26,6 +27,17 @@ class _TimekeepingDetailScreenState extends State<TimekeepingDetailScreen> {
   @override
   void initState() {
     super.initState();
+    _loadData();
+    AppState.instance.dataVersion.addListener(_onDataChanged);
+  }
+
+  @override
+  void dispose() {
+    AppState.instance.dataVersion.removeListener(_onDataChanged);
+    super.dispose();
+  }
+
+  void _onDataChanged() {
     _loadData();
   }
 
@@ -73,6 +85,70 @@ class _TimekeepingDetailScreenState extends State<TimekeepingDetailScreen> {
       grouped[detail.personnelId]![dateKey]!.add(detail);
     }
     return grouped;
+  }
+
+  /// Count only work days for a person's date map
+  int _countWorkDays(Map<DateTime, List<TimekeepingDetail>> dateMap) {
+    int count = 0;
+    for (var records in dateMap.values) {
+      if (records.any((r) => r.dayStatus == DayStatus.work)) {
+        count++;
+      }
+    }
+    return count;
+  }
+
+  Widget _buildStatusChip(String dayStatus) {
+    switch (dayStatus) {
+      case DayStatus.phep:
+        return Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+          decoration: BoxDecoration(
+            color: Colors.blue.shade100,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Text(
+            'Nghỉ Phép',
+            style: TextStyle(
+              color: Colors.blue.shade800,
+              fontSize: 11,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        );
+      case DayStatus.kphep:
+        return Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+          decoration: BoxDecoration(
+            color: Colors.orange.shade100,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Text(
+            'Nghỉ K Phép',
+            style: TextStyle(
+              color: Colors.orange.shade900,
+              fontSize: 11,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        );
+      default: // work
+        return Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+          decoration: BoxDecoration(
+            color: Colors.green.shade100,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Text(
+            'Đi làm',
+            style: TextStyle(
+              color: Colors.green.shade800,
+              fontSize: 11,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        );
+    }
   }
 
   @override
@@ -133,7 +209,8 @@ class _TimekeepingDetailScreenState extends State<TimekeepingDetailScreen> {
                         child: Text('Tất cả'),
                       ),
                       ..._personnelList.map((p) {
-                        return DropdownMenuItem(value: p.id, child: Text(p.name));
+                        return DropdownMenuItem(
+                            value: p.id, child: Text(p.name));
                       }),
                     ],
                     onChanged: (value) {
@@ -160,70 +237,120 @@ class _TimekeepingDetailScreenState extends State<TimekeepingDetailScreen> {
             child: _isLoading
                 ? const Center(child: CircularProgressIndicator())
                 : _details.isEmpty
-                ? Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(
-                          Icons.assignment_outlined,
-                          size: 80,
-                          color: Colors.grey[400],
+                    ? Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.assignment_outlined,
+                              size: 80,
+                              color: Colors.grey[400],
+                            ),
+                            const SizedBox(height: 16),
+                            Text(
+                              'Không có dữ liệu chấm công',
+                              style: TextStyle(
+                                fontSize: 18,
+                                color: Colors.grey[600],
+                              ),
+                            ),
+                          ],
                         ),
-                        const SizedBox(height: 16),
-                        Text(
-                          'Không có dữ liệu chấm công',
-                          style: TextStyle(
-                            fontSize: 18,
-                            color: Colors.grey[600],
-                          ),
-                        ),
-                      ],
-                    ),
-                  )
-                : ListView.builder(
-                    padding: const EdgeInsets.all(16),
-                    itemCount: groupedByPersonnel.length,
-                    itemBuilder: (context, index) {
-                      final personnelId = groupedByPersonnel.keys.elementAt(
-                        index,
-                      );
-                      final dateMap = groupedByPersonnel[personnelId]!;
-                      final personnelName = _details
-                          .firstWhere((d) => d.personnelId == personnelId)
-                          .personnelName;
+                      )
+                    : ListView.builder(
+                        padding: const EdgeInsets.all(16),
+                        itemCount: groupedByPersonnel.length,
+                        itemBuilder: (context, index) {
+                          final personnelId =
+                              groupedByPersonnel.keys.elementAt(index);
+                          final dateMap = groupedByPersonnel[personnelId]!;
+                          final personnelName = _details
+                              .firstWhere((d) => d.personnelId == personnelId)
+                              .personnelName;
 
-                      return Card(
-                        margin: const EdgeInsets.only(bottom: 16),
-                        child: ExpansionTile(
-                          title: Text(
-                            personnelName,
-                            style: const TextStyle(fontWeight: FontWeight.bold),
-                          ),
-                          subtitle: Text('${dateMap.length} ngày công'),
-                          children: dateMap.entries.map((entry) {
-                            final date = entry.key;
-                            final records = entry.value;
-                            final weekday = _getWeekdayName(date.weekday);
+                          // Count summary
+                          int workDays = 0;
+                          int phepDays = 0;
+                          int kphepDays = 0;
+                          for (var records in dateMap.values) {
+                            for (var r in records) {
+                              if (r.dayStatus == DayStatus.work) workDays++;
+                              else if (r.dayStatus == DayStatus.phep) phepDays++;
+                              else if (r.dayStatus == DayStatus.kphep) kphepDays++;
+                            }
+                          }
 
-                            return ListTile(
+                          return Card(
+                            margin: const EdgeInsets.only(bottom: 16),
+                            child: ExpansionTile(
                               title: Text(
-                                '$weekday, ${DateFormat('dd/MM/yyyy').format(date)}',
+                                personnelName,
+                                style: const TextStyle(
+                                    fontWeight: FontWeight.bold),
                               ),
-                              subtitle: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: records.map((r) {
-                                  return Text(
-                                    '${r.jobPositionName} - ${r.transactionPointName}',
-                                    style: const TextStyle(fontSize: 12),
-                                  );
-                                }).toList(),
+                              subtitle: Row(
+                                children: [
+                                  Text('Đi làm: $workDays',
+                                      style: TextStyle(
+                                          color: Colors.green.shade700,
+                                          fontSize: 12)),
+                                  if (phepDays > 0) ...[
+                                    const SizedBox(width: 8),
+                                    Text('Nghỉ phép: $phepDays',
+                                        style: TextStyle(
+                                            color: Colors.blue.shade700,
+                                            fontSize: 12)),
+                                  ],
+                                  if (kphepDays > 0) ...[
+                                    const SizedBox(width: 8),
+                                    Text('K phép: $kphepDays',
+                                        style: TextStyle(
+                                            color: Colors.orange.shade800,
+                                            fontSize: 12)),
+                                  ],
+                                ],
                               ),
-                            );
-                          }).toList(),
-                        ),
-                      );
-                    },
-                  ),
+                              children: dateMap.entries.map((entry) {
+                                final date = entry.key;
+                                final records = entry.value;
+                                final weekday =
+                                    _getWeekdayName(date.weekday);
+
+                                return ListTile(
+                                  title: Text(
+                                    '$weekday, ${DateFormat('dd/MM/yyyy').format(date)}',
+                                  ),
+                                  subtitle: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: records.map((r) {
+                                      return Padding(
+                                        padding: const EdgeInsets.only(
+                                            top: 4),
+                                        child: Row(
+                                          children: [
+                                            _buildStatusChip(r.dayStatus),
+                                            // Only show position / TP for work days
+                                            if (r.dayStatus == DayStatus.work) ...[
+                                              const SizedBox(width: 8),
+                                              Text(
+                                                '${r.jobPositionName} - ${r.transactionPointName}',
+                                                style: const TextStyle(
+                                                    fontSize: 12),
+                                              ),
+                                            ],
+                                          ],
+                                        ),
+                                      );
+                                    }).toList(),
+                                  ),
+                                  isThreeLine: records.length > 1,
+                                );
+                              }).toList(),
+                            ),
+                          );
+                        },
+                      ),
           ),
         ],
       ),

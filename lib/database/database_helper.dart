@@ -22,7 +22,12 @@ class DatabaseHelper {
     final dbPath = await getDatabasesPath();
     final path = join(dbPath, filePath);
 
-    return await openDatabase(path, version: 1, onCreate: _createDB);
+    return await openDatabase(
+      path,
+      version: 2,
+      onCreate: _createDB,
+      onUpgrade: _upgradeDB,
+    );
   }
 
   Future _createDB(Database db, int version) async {
@@ -70,12 +75,26 @@ class DatabaseHelper {
         date DATE NOT NULL,
         job_position_id INTEGER NOT NULL,
         transaction_point_id INTEGER NOT NULL,
+        day_status TEXT NOT NULL DEFAULT 'work',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (personnel_id) REFERENCES personnel(id),
         FOREIGN KEY (job_position_id) REFERENCES job_positions(id),
         FOREIGN KEY (transaction_point_id) REFERENCES transaction_points(id)
       )
     ''');
+  }
+
+  Future _upgradeDB(Database db, int oldVersion, int newVersion) async {
+    if (oldVersion < 2) {
+      // Add day_status column to existing timekeeping table
+      try {
+        await db.execute(
+          "ALTER TABLE timekeeping ADD COLUMN day_status TEXT NOT NULL DEFAULT 'work'",
+        );
+      } catch (_) {
+        // Column might already exist in some edge cases
+      }
+    }
   }
 
   // ==================== USER OPERATIONS ====================
@@ -290,7 +309,8 @@ class DatabaseHelper {
         t.job_position_id,
         jp.name as job_position_name,
         t.transaction_point_id,
-        tp.name as transaction_point_name
+        tp.name as transaction_point_name,
+        t.day_status
       FROM timekeeping t
       INNER JOIN personnel p ON t.personnel_id = p.id
       INNER JOIN job_positions jp ON t.job_position_id = jp.id
@@ -309,8 +329,6 @@ class DatabaseHelper {
   }) async {
     final db = await database;
 
-    final transactionPoints = await getAllTransactionPoints();
-
     String where = "strftime('%Y', t.date) = ? AND strftime('%m', t.date) = ?";
     List<dynamic> whereArgs = [
       year.toString(),
@@ -325,11 +343,14 @@ class DatabaseHelper {
     final result = await db.rawQuery('''
       SELECT 
         t.personnel_id,
+        t.job_position_id,
         p.name as personnel_name,
         p.basic_salary as basic_salary,
         jp.salary as position_salary,
+        jp.name as position_name,
         tp.name as transaction_point_name,
-        t.date
+        t.date,
+        t.day_status
       FROM timekeeping t
       INNER JOIN personnel p ON t.personnel_id = p.id
       INNER JOIN transaction_points tp ON t.transaction_point_id = tp.id
@@ -341,47 +362,86 @@ class DatabaseHelper {
     Map<int, Map<String, dynamic>> summaryMap = {};
 
     for (var row in result) {
-      final personnelId = row['personnel_id'] as int;
+      final pId = row['personnel_id'] as int;
+      final jobPositionId = row['job_position_id'] as int;
       final personnelName = row['personnel_name'] as String;
       final basicSalary = (row['basic_salary'] as num).toDouble();
       final positionSalary = (row['position_salary'] as num).toDouble();
       final tpName = row['transaction_point_name'] as String;
       final date = row['date'] as String;
+      final dayStatus = row['day_status'] as String? ?? DayStatus.work;
 
-      if (!summaryMap.containsKey(personnelId)) {
-        summaryMap[personnelId] = {
-          'personnel_id': personnelId,
+      if (!summaryMap.containsKey(pId)) {
+        summaryMap[pId] = {
+          'personnel_id': pId,
           'personnel_name': personnelName,
           'basic_salary': basicSalary,
-          'total_position_salary': 0.0,
-          'unique_dates_by_tp': <String, Set<String>>{},
+          // Map<jobPositionId, {salary, uniqueDates: Set<String>}>
+          'positions': <int, Map<String, dynamic>>{},
+          // Map<tpName, Set<date>> — for display column per transaction point
+          'unique_work_dates_by_tp': <String, Set<String>>{},
+          'phep_dates': <String>{},
+          'kphep_dates': <String>{},
         };
       }
 
-      final pMap = summaryMap[personnelId]!;
-      pMap['total_position_salary'] = (pMap['total_position_salary'] as double) + positionSalary;
-      
-      final datesByTp = pMap['unique_dates_by_tp'] as Map<String, Set<String>>;
-      if (!datesByTp.containsKey(tpName)) {
-        datesByTp[tpName] = <String>{};
+      final pMap = summaryMap[pId]!;
+
+      if (dayStatus == DayStatus.work) {
+        // Track per-position unique work dates (for correct salary calc)
+        final positions = pMap['positions'] as Map<int, Map<String, dynamic>>;
+        if (!positions.containsKey(jobPositionId)) {
+          positions[jobPositionId] = {
+            'salary': positionSalary,
+            'dates': <String>{},
+          };
+        }
+        (positions[jobPositionId]!['dates'] as Set<String>).add(date);
+
+        // Track per-transaction-point unique work dates (for display columns)
+        final workDatesByTp =
+            pMap['unique_work_dates_by_tp'] as Map<String, Set<String>>;
+        if (!workDatesByTp.containsKey(tpName)) {
+          workDatesByTp[tpName] = <String>{};
+        }
+        workDatesByTp[tpName]!.add(date);
+      } else if (dayStatus == DayStatus.phep) {
+        (pMap['phep_dates'] as Set<String>).add(date);
+      } else if (dayStatus == DayStatus.kphep) {
+        (pMap['kphep_dates'] as Set<String>).add(date);
       }
-      datesByTp[tpName]!.add(date);
     }
 
     return summaryMap.values.map((data) {
-      final datesByTp = data['unique_dates_by_tp'] as Map<String, Set<String>>;
-      final daysByTransactionPoint = datesByTp.map((key, value) => MapEntry(key, value.length));
-      
+      final workDatesByTp =
+          data['unique_work_dates_by_tp'] as Map<String, Set<String>>;
+      final daysByTransactionPoint =
+          workDatesByTp.map((key, value) => MapEntry(key, value.length));
+
       final totalDays = daysByTransactionPoint.values.fold(0, (a, b) => a + b);
-      
+      final totalDaysOff = (data['phep_dates'] as Set<String>).length;
+      final totalDaysUnauth = (data['kphep_dates'] as Set<String>).length;
+
       final double basicSalary = data['basic_salary'] as double;
-      final double totalPositionSalary = data['total_position_salary'] as double;
+
+      // Correct salary: basicSalary + Σ(position.salary × uniqueWorkDays per position)
+      // This avoids double-counting the same day across multiple transaction points
+      final positions = data['positions'] as Map<int, Map<String, dynamic>>;
+      double totalPositionSalary = 0.0;
+      for (var posEntry in positions.values) {
+        final salary = (posEntry['salary'] as num).toDouble();
+        final days = (posEntry['dates'] as Set<String>).length;
+        totalPositionSalary += salary * days;
+      }
+
       final double totalSalary = basicSalary + totalPositionSalary;
 
       return TimekeepingSummary(
         personnelId: data['personnel_id'],
         personnelName: data['personnel_name'],
         totalDays: totalDays,
+        totalDaysOff: totalDaysOff,
+        totalDaysUnauth: totalDaysUnauth,
         daysByTransactionPoint: daysByTransactionPoint,
         totalSalary: totalSalary,
       );
