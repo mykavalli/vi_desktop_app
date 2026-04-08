@@ -46,7 +46,6 @@ class _TimekeepingDetailScreenState extends State<TimekeepingDetailScreen> {
 
   Future<void> _loadData() async {
     setState(() => _isLoading = true);
-    // Load ALL personnel including resigned for historical filtering
     _personnelList = await _db.getAllPersonnel(activeOnly: true, workingOnly: false);
     await _loadDetails();
     setState(() => _isLoading = false);
@@ -77,7 +76,7 @@ class _TimekeepingDetailScreenState extends State<TimekeepingDetailScreen> {
 
   Widget _buildStatusChip(String dayStatus) {
     switch (dayStatus) {
-      case DayStatus.phep:
+      case DayStatus.tx:
         return Container(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
           decoration: BoxDecoration(
@@ -85,7 +84,7 @@ class _TimekeepingDetailScreenState extends State<TimekeepingDetailScreen> {
             borderRadius: BorderRadius.circular(12),
           ),
           child: Text(
-            'Nghỉ Phép',
+            'Tài xế',
             style: TextStyle(
               color: Colors.blue.shade800,
               fontSize: 11,
@@ -93,7 +92,23 @@ class _TimekeepingDetailScreenState extends State<TimekeepingDetailScreen> {
             ),
           ),
         );
-      case DayStatus.kphep:
+      case DayStatus.px:
+        return Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+          decoration: BoxDecoration(
+            color: Colors.cyan.shade100,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Text(
+            'Phụ xe',
+            style: TextStyle(
+              color: Colors.cyan.shade900,
+              fontSize: 11,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        );
+      case DayStatus.np:
         return Container(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
           decoration: BoxDecoration(
@@ -101,7 +116,7 @@ class _TimekeepingDetailScreenState extends State<TimekeepingDetailScreen> {
             borderRadius: BorderRadius.circular(12),
           ),
           child: Text(
-            'Nghỉ K Phép',
+            'Nghỉ Phép',
             style: TextStyle(
               color: Colors.orange.shade900,
               fontSize: 11,
@@ -109,17 +124,33 @@ class _TimekeepingDetailScreenState extends State<TimekeepingDetailScreen> {
             ),
           ),
         );
-      default: // work
+      case DayStatus.kp:
         return Container(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
           decoration: BoxDecoration(
-            color: Colors.green.shade100,
+            color: Colors.red.shade100,
             borderRadius: BorderRadius.circular(12),
           ),
           child: Text(
-            'Đi làm',
+            'Nghỉ K Phép',
             style: TextStyle(
-              color: Colors.green.shade800,
+              color: Colors.red.shade900,
+              fontSize: 11,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        );
+      default:
+        return Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+          decoration: BoxDecoration(
+            color: Colors.grey.shade100,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Text(
+            'Không xác định',
+            style: TextStyle(
+              color: Colors.grey.shade800,
               fontSize: 11,
               fontWeight: FontWeight.bold,
             ),
@@ -130,12 +161,16 @@ class _TimekeepingDetailScreenState extends State<TimekeepingDetailScreen> {
 
   String _dayStatusLabel(String status) {
     switch (status) {
-      case DayStatus.phep:
+      case DayStatus.tx:
+        return 'Tài xế';
+      case DayStatus.px:
+        return 'Phụ xe';
+      case DayStatus.np:
         return 'Nghỉ Phép';
-      case DayStatus.kphep:
+      case DayStatus.kp:
         return 'Nghỉ K Phép';
       default:
-        return 'Đi làm';
+        return 'Không xác định';
     }
   }
 
@@ -150,29 +185,29 @@ class _TimekeepingDetailScreenState extends State<TimekeepingDetailScreen> {
 
     xls.CellStyle headerStyle = xls.CellStyle(
       bold: true,
-      backgroundColorHex: xls.ExcelColor.fromHexString('#1565C0'),
-      fontColorHex: xls.ExcelColor.fromHexString('#FFFFFF'),
+      backgroundColorHex: xls.ExcelColor.blue,
+      fontColorHex: xls.ExcelColor.white,
       leftBorder: xls.Border(borderStyle: xls.BorderStyle.Thin),
       rightBorder: xls.Border(borderStyle: xls.BorderStyle.Thin),
       topBorder: xls.Border(borderStyle: xls.BorderStyle.Thin),
       bottomBorder: xls.Border(borderStyle: xls.BorderStyle.Thin),
     );
     xls.CellStyle workStyle = xls.CellStyle(
-      backgroundColorHex: xls.ExcelColor.fromHexString('#E8F5E9'),
+      backgroundColorHex: xls.ExcelColor.fromHexString('#E3F2FD'), // light blue
       leftBorder: xls.Border(borderStyle: xls.BorderStyle.Thin),
       rightBorder: xls.Border(borderStyle: xls.BorderStyle.Thin),
       topBorder: xls.Border(borderStyle: xls.BorderStyle.Thin),
       bottomBorder: xls.Border(borderStyle: xls.BorderStyle.Thin),
     );
     xls.CellStyle phepStyle = xls.CellStyle(
-      backgroundColorHex: xls.ExcelColor.fromHexString('#E3F2FD'),
+      backgroundColorHex: xls.ExcelColor.fromHexString('#FFF3E0'), // light orange
       leftBorder: xls.Border(borderStyle: xls.BorderStyle.Thin),
       rightBorder: xls.Border(borderStyle: xls.BorderStyle.Thin),
       topBorder: xls.Border(borderStyle: xls.BorderStyle.Thin),
       bottomBorder: xls.Border(borderStyle: xls.BorderStyle.Thin),
     );
     xls.CellStyle kphepStyle = xls.CellStyle(
-      backgroundColorHex: xls.ExcelColor.fromHexString('#FFF3E0'),
+      backgroundColorHex: xls.ExcelColor.fromHexString('#FFEBEE'), // light red
       leftBorder: xls.Border(borderStyle: xls.BorderStyle.Thin),
       rightBorder: xls.Border(borderStyle: xls.BorderStyle.Thin),
       topBorder: xls.Border(borderStyle: xls.BorderStyle.Thin),
@@ -187,8 +222,8 @@ class _TimekeepingDetailScreenState extends State<TimekeepingDetailScreen> {
       bottomBorder: xls.Border(borderStyle: xls.BorderStyle.Thin),
     );
 
-    final headers = ['STT', 'Tên nhân viên', 'Ngày', 'Thứ', 'Trạng thái', 'Vị trí', 'Điểm GD'];
-    final colWidths = [6.0, 25.0, 14.0, 10.0, 15.0, 20.0, 20.0];
+    final headers = ['STT', 'Tên nhân viên', 'Ngày', 'Thứ', 'Trạng thái', 'Điểm GD'];
+    final colWidths = [6.0, 25.0, 14.0, 10.0, 15.0, 20.0];
     for (int i = 0; i < headers.length; i++) {
       final cell = sheet.cell(
           xls.CellIndex.indexByColumnRow(columnIndex: i, rowIndex: 0));
@@ -207,16 +242,16 @@ class _TimekeepingDetailScreenState extends State<TimekeepingDetailScreen> {
       final isWorking = firstDetail.personnelIsWorking;
 
       // Personnel sub-header row
-      final nameCell = sheet.cell(
+      final sttCell = sheet.cell(
           xls.CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: rowIndex));
-      nameCell.value = xls.TextCellValue('');
-      nameCell.cellStyle = subHeaderStyle;
-      final nameCell2 = sheet.cell(
+      sttCell.value = xls.TextCellValue('');
+      sttCell.cellStyle = subHeaderStyle;
+      final nameCell = sheet.cell(
           xls.CellIndex.indexByColumnRow(columnIndex: 1, rowIndex: rowIndex));
-      nameCell2.value = xls.TextCellValue(
+      nameCell.value = xls.TextCellValue(
           personnelName + (isWorking ? '' : ' [Đã nghỉ]'));
-      nameCell2.cellStyle = subHeaderStyle;
-      for (int c = 2; c < 7; c++) {
+      nameCell.cellStyle = subHeaderStyle;
+      for (int c = 2; c < 6; c++) {
         sheet.cell(xls.CellIndex.indexByColumnRow(columnIndex: c, rowIndex: rowIndex))
           ..value = xls.TextCellValue('')
           ..cellStyle = subHeaderStyle;
@@ -227,10 +262,10 @@ class _TimekeepingDetailScreenState extends State<TimekeepingDetailScreen> {
         for (final r in records) {
           xls.CellStyle rowStyle;
           switch (r.dayStatus) {
-            case DayStatus.phep:
+            case DayStatus.np:
               rowStyle = phepStyle;
               break;
-            case DayStatus.kphep:
+            case DayStatus.kp:
               rowStyle = kphepStyle;
               break;
             default:
@@ -249,8 +284,7 @@ class _TimekeepingDetailScreenState extends State<TimekeepingDetailScreen> {
           setCell(2, _formatDate(r.date));
           setCell(3, _getWeekdayName(r.date.weekday));
           setCell(4, _dayStatusLabel(r.dayStatus));
-          setCell(5, r.dayStatus == DayStatus.work ? r.jobPositionName : '');
-          setCell(6, r.dayStatus == DayStatus.work ? r.transactionPointName : '');
+          setCell(5, (r.dayStatus == DayStatus.tx || r.dayStatus == DayStatus.px) ? r.transactionPointName : '');
 
           stt++;
           rowIndex++;
@@ -464,9 +498,9 @@ class _TimekeepingDetailScreenState extends State<TimekeepingDetailScreen> {
                           int kphepDays = 0;
                           for (var records in dateMap.values) {
                             for (var r in records) {
-                              if (r.dayStatus == DayStatus.work) workDays++;
-                              else if (r.dayStatus == DayStatus.phep) phepDays++;
-                              else if (r.dayStatus == DayStatus.kphep) kphepDays++;
+                              if (r.dayStatus == DayStatus.tx || r.dayStatus == DayStatus.px) workDays++;
+                              else if (r.dayStatus == DayStatus.np) phepDays++;
+                              else if (r.dayStatus == DayStatus.kp) kphepDays++;
                             }
                           }
 
@@ -524,20 +558,20 @@ class _TimekeepingDetailScreenState extends State<TimekeepingDetailScreen> {
                                 children: [
                                   Text('Đi làm: $workDays',
                                       style: TextStyle(
-                                          color: Colors.green.shade700,
+                                          color: Colors.blue.shade700,
                                           fontSize: 12)),
                                   if (phepDays > 0) ...[
                                     const SizedBox(width: 8),
                                     Text('Nghỉ phép: $phepDays',
                                         style: TextStyle(
-                                            color: Colors.blue.shade700,
+                                            color: Colors.orange.shade800,
                                             fontSize: 12)),
                                   ],
                                   if (kphepDays > 0) ...[
                                     const SizedBox(width: 8),
                                     Text('K phép: $kphepDays',
                                         style: TextStyle(
-                                            color: Colors.orange.shade800,
+                                            color: Colors.red.shade800,
                                             fontSize: 12)),
                                   ],
                                 ],
@@ -562,12 +596,10 @@ class _TimekeepingDetailScreenState extends State<TimekeepingDetailScreen> {
                                         child: Row(
                                           children: [
                                             _buildStatusChip(r.dayStatus),
-                                            // Only show position / TP for work days
-                                            if (r.dayStatus ==
-                                                DayStatus.work) ...[
+                                            if (r.dayStatus == DayStatus.tx || r.dayStatus == DayStatus.px) ...[
                                               const SizedBox(width: 8),
                                               Text(
-                                                '${r.jobPositionName} - ${r.transactionPointName}',
+                                                r.transactionPointName, // No longer need job position
                                                 style: const TextStyle(
                                                     fontSize: 12),
                                               ),

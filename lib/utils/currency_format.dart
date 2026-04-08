@@ -1,3 +1,5 @@
+import 'package:flutter/services.dart';
+
 class CurrencyFormat {
   static String formatNumberOnly(double value) {
     return value
@@ -73,5 +75,42 @@ class CurrencyFormat {
     }
     
     return result.trim();
+  }
+}
+
+class CurrencyInputFormatter extends TextInputFormatter {
+  @override
+  TextEditingValue formatEditUpdate(
+    TextEditingValue oldValue,
+    TextEditingValue newValue,
+  ) {
+    if (newValue.selection.baseOffset == 0) {
+      return newValue;
+    }
+
+    // Remove all non-digits
+    String text = newValue.text.replaceAll(RegExp(r'[^0-9]'), '');
+    
+    if (text.isEmpty) {
+      return newValue.copyWith(text: '');
+    }
+
+    double value = double.parse(text);
+    
+    // Format numeric with thousand separators
+    String newText = value.toStringAsFixed(0).replaceAllMapped(
+      RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
+      (Match m) => '${m[1]}.',
+    );
+
+    return newValue.copyWith(
+      text: newText,
+      selection: TextSelection.collapsed(offset: newText.length),
+    );
+  }
+
+  static double parse(String text) {
+    if (text.isEmpty) return 0.0;
+    return double.tryParse(text.replaceAll('.', '')) ?? 0.0;
   }
 }

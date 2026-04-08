@@ -1,12 +1,18 @@
 import 'package:flutter/material.dart';
 import 'personnel_screen.dart';
-import 'job_position_screen.dart';
+// removed job_position_screen
 import 'transaction_point_screen.dart';
 import 'timekeeping_screen.dart';
 import 'timekeeping_detail_screen.dart';
 import 'timekeeping_summary_screen.dart';
 import 'account_screen.dart';
 import 'login_screen.dart';
+import 'guide_screen.dart';
+import 'package:window_manager/window_manager.dart';
+import '../services/google_drive_service.dart';
+import 'dart:io';
+import 'package:sqflite/sqflite.dart';
+import 'dart:async';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -15,8 +21,150 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen> with WindowListener {
   int _selectedIndex = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    windowManager.addListener(this);
+    _initWindow();
+  }
+
+  @override
+  void dispose() {
+    windowManager.removeListener(this);
+    super.dispose();
+  }
+
+  Future<void> _initWindow() async {
+    await windowManager.setPreventClose(true);
+  }
+
+  @override
+  void onWindowClose() async {
+    bool isPreventClose = await windowManager.isPreventClose();
+    if (isPreventClose) {
+      _showExitDialog();
+    }
+  }
+
+  Future<void> _showExitDialog() async {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: const Text('Xác nhận thoát'),
+        content: const Text('Bạn có muốn sao lưu dữ liệu lên Google Drive trước khi thoát không?'),
+        actions: [
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(context); // close dialog
+              await windowManager.setPreventClose(false);
+              windowManager.removeListener(this);
+              await windowManager.destroy();
+              exit(0);
+            },
+            child: const Text('Không, thoát ngay'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.pop(context); // close dialog
+              _performBackupAndExit();
+            },
+            child: const Text('Có, sao lưu và thoát'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _performBackupAndExit() async {
+    final drive = GoogleDriveService.instance;
+    
+    // Check auth
+    if (!drive.IsAuthenticated) {
+      bool authed = await drive.authenticate();
+      if (!authed) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Không thể kết nối Google Drive hoặc đã bị hủy. Thoát mà không sao lưu...')),
+          );
+        }
+        await Future.delayed(const Duration(seconds: 2));
+        await windowManager.setPreventClose(false);
+        windowManager.removeListener(this);
+        await windowManager.destroy();
+        exit(0);
+        return;
+      }
+    }
+
+    // Show loading dialog
+    if (!mounted) return;
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const AlertDialog(
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(height: 16),
+            Text('Đang sao lưu dữ liệu...'),
+          ],
+        ),
+      ),
+    );
+
+    try {
+      final dbPath = await getDatabasesPath();
+      final file = File('$dbPath/vi_desktop_app.db');
+      
+      if (await file.exists()) {
+        await drive.uploadBackup(file);
+      }
+
+      if (mounted) {
+        Navigator.pop(context); // Close loading
+        
+        // Show success and wait 2s
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (context) => const AlertDialog(
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.check_circle, color: Colors.green, size: 48),
+                SizedBox(height: 16),
+                Text('Sao lưu thành công!'),
+                Text('Ứng dụng sẽ đóng sau 2 giây...'),
+              ],
+            ),
+          ),
+        );
+        
+        await Future.delayed(const Duration(seconds: 2));
+        await windowManager.setPreventClose(false);
+        windowManager.removeListener(this);
+        await windowManager.destroy();
+        exit(0);
+      }
+    } catch (e) {
+      if (mounted) {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Lỗi sao lưu: $e')),
+        );
+      }
+      await Future.delayed(const Duration(seconds: 3));
+      await windowManager.setPreventClose(false);
+      windowManager.removeListener(this);
+      await windowManager.destroy();
+      exit(0);
+    }
+  }
 
   void _navigate(int index) {
     setState(() => _selectedIndex = index);
@@ -25,23 +173,23 @@ class _HomeScreenState extends State<HomeScreen> {
   List<Widget> get _screens => [
     _DashboardView(onNavigate: _navigate),
     const PersonnelScreen(),
-    const JobPositionScreen(),
     const TransactionPointScreen(),
     const TimekeepingScreen(),
     const TimekeepingDetailScreen(),
     TimekeepingSummaryScreen(onNavigate: _navigate),
     const AccountScreen(),
+    const GuideScreen(),
   ];
 
   final List<String> _titles = [
     'Trang chủ',
     'Quản lý Nhân sự',
-    'Quản lý Vị trí công việc',
     'Quản lý Điểm giao dịch',
     'Chấm công',
     'Chấm công chi tiết',
     'Chấm công tổng hợp',
     'Tài khoản',
+    'Hướng dẫn sử dụng',
   ];
 
   @override
@@ -89,29 +237,29 @@ class _HomeScreenState extends State<HomeScreen> {
               PopupMenuItem(
                 value: 2,
                 child: ListTile(
-                  leading: const Icon(Icons.work),
-                  title: const Text('Quản lý Vị trí công việc'),
+                  leading: const Icon(Icons.location_on),
+                  title: const Text('Quản lý Điểm giao dịch'),
                   textColor: _selectedIndex == 2 ? Theme.of(context).primaryColor : null,
                   iconColor: _selectedIndex == 2 ? Theme.of(context).primaryColor : null,
                   contentPadding: EdgeInsets.zero,
                 ),
               ),
+              const PopupMenuDivider(),
               PopupMenuItem(
                 value: 3,
                 child: ListTile(
-                  leading: const Icon(Icons.location_on),
-                  title: const Text('Quản lý Điểm giao dịch'),
+                  leading: const Icon(Icons.edit_calendar),
+                  title: const Text('Chấm công'),
                   textColor: _selectedIndex == 3 ? Theme.of(context).primaryColor : null,
                   iconColor: _selectedIndex == 3 ? Theme.of(context).primaryColor : null,
                   contentPadding: EdgeInsets.zero,
                 ),
               ),
-              const PopupMenuDivider(),
               PopupMenuItem(
                 value: 4,
                 child: ListTile(
-                  leading: const Icon(Icons.edit_calendar),
-                  title: const Text('Chấm công'),
+                  leading: const Icon(Icons.list_alt),
+                  title: const Text('Chấm công chi tiết'),
                   textColor: _selectedIndex == 4 ? Theme.of(context).primaryColor : null,
                   iconColor: _selectedIndex == 4 ? Theme.of(context).primaryColor : null,
                   contentPadding: EdgeInsets.zero,
@@ -120,29 +268,29 @@ class _HomeScreenState extends State<HomeScreen> {
               PopupMenuItem(
                 value: 5,
                 child: ListTile(
-                  leading: const Icon(Icons.list_alt),
-                  title: const Text('Chấm công chi tiết'),
+                  leading: const Icon(Icons.summarize),
+                  title: const Text('Chấm công tổng hợp'),
                   textColor: _selectedIndex == 5 ? Theme.of(context).primaryColor : null,
                   iconColor: _selectedIndex == 5 ? Theme.of(context).primaryColor : null,
                   contentPadding: EdgeInsets.zero,
                 ),
               ),
+              const PopupMenuDivider(),
               PopupMenuItem(
                 value: 6,
                 child: ListTile(
-                  leading: const Icon(Icons.summarize),
-                  title: const Text('Chấm công tổng hợp'),
+                  leading: const Icon(Icons.settings),
+                  title: const Text('Tài khoản'),
                   textColor: _selectedIndex == 6 ? Theme.of(context).primaryColor : null,
                   iconColor: _selectedIndex == 6 ? Theme.of(context).primaryColor : null,
                   contentPadding: EdgeInsets.zero,
                 ),
               ),
-              const PopupMenuDivider(),
               PopupMenuItem(
                 value: 7,
                 child: ListTile(
-                  leading: const Icon(Icons.settings),
-                  title: const Text('Tài khoản'),
+                  leading: const Icon(Icons.help_outline),
+                  title: const Text('Hướng dẫn'),
                   textColor: _selectedIndex == 7 ? Theme.of(context).primaryColor : null,
                   iconColor: _selectedIndex == 7 ? Theme.of(context).primaryColor : null,
                   contentPadding: EdgeInsets.zero,
@@ -209,39 +357,39 @@ class _DashboardView extends StatelessWidget {
                 onTap: () => onNavigate(1),
               ),
               _QuickActionCard(
-                icon: Icons.work,
-                title: 'Vị trí',
-                color: Colors.green,
-                onTap: () => onNavigate(2),
-              ),
-              _QuickActionCard(
                 icon: Icons.location_on,
                 title: 'Điểm GD',
                 color: Colors.orange,
-                onTap: () => onNavigate(3),
+                onTap: () => onNavigate(2),
               ),
               _QuickActionCard(
                 icon: Icons.edit_calendar,
                 title: 'Chấm công',
                 color: Colors.purple,
-                onTap: () => onNavigate(4),
+                onTap: () => onNavigate(3),
               ),
               _QuickActionCard(
                 icon: Icons.list_alt,
                 title: 'Chi tiết CC',
                 color: Colors.teal,
-                onTap: () => onNavigate(5),
+                onTap: () => onNavigate(4),
               ),
               _QuickActionCard(
                 icon: Icons.summarize,
                 title: 'Tổng hợp CC',
                 color: Colors.indigo,
-                onTap: () => onNavigate(6),
+                onTap: () => onNavigate(5),
               ),
               _QuickActionCard(
                 icon: Icons.settings,
                 title: 'Tài khoản',
                 color: Colors.blueGrey,
+                onTap: () => onNavigate(6),
+              ),
+              _QuickActionCard(
+                icon: Icons.help_outline,
+                title: 'Hướng dẫn',
+                color: Colors.brown,
                 onTap: () => onNavigate(7),
               ),
             ],

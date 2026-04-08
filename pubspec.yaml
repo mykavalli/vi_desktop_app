@@ -56,6 +56,12 @@ dependencies:
   # Crypto for password hashing
   crypto: ^3.0.5
 
+  # Google API & Auth
+  googleapis: ^13.2.0
+  googleapis_auth: ^1.6.0
+  http: ^1.2.2
+  url_launcher: ^6.3.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

@@ -24,7 +24,7 @@ class DatabaseHelper {
 
     return await openDatabase(
       path,
-      version: 3,
+      version: 9,
       onCreate: _createDB,
       onUpgrade: _upgradeDB,
     );
@@ -35,6 +35,8 @@ class DatabaseHelper {
       CREATE TABLE users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         password_hash TEXT NOT NULL,
+        google_client_id TEXT,
+        google_client_secret TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     ''');
@@ -44,11 +46,15 @@ class DatabaseHelper {
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT NOT NULL,
         basic_salary REAL NOT NULL,
+        cccd TEXT,
+        role TEXT,
         is_active INTEGER DEFAULT 1,
         is_working INTEGER DEFAULT 1,
         driver_license TEXT,
         start_date TEXT,
         deposit REAL,
+        seniority_salary REAL DEFAULT 0,
+        additional_allowance REAL DEFAULT 0,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     ''');
@@ -115,6 +121,91 @@ class DatabaseHelper {
         }
       }
     }
+    if (oldVersion < 4) {
+      // Add more personnel columns
+      final newCols = [
+        "ALTER TABLE personnel ADD COLUMN seniority_salary REAL DEFAULT 0",
+        "ALTER TABLE personnel ADD COLUMN additional_allowance REAL DEFAULT 0",
+      ];
+      for (final sql in newCols) {
+        try {
+          await db.execute(sql);
+        } catch (_) {
+          // Column might already exist
+        }
+      }
+    }
+    if (oldVersion < 5) {
+      // Add Google Drive credentials columns to users
+      final newCols = [
+        "ALTER TABLE users ADD COLUMN google_client_id TEXT",
+        "ALTER TABLE users ADD COLUMN google_client_secret TEXT",
+      ];
+      for (final sql in newCols) {
+        try {
+          await db.execute(sql);
+        } catch (_) {
+          // Column might already exist
+        }
+      }
+    }
+    if (oldVersion < 6) {
+      // Fix missing is_working and add cccd column
+      final newCols = [
+        "ALTER TABLE personnel ADD COLUMN is_working INTEGER DEFAULT 1",
+        "ALTER TABLE personnel ADD COLUMN cccd TEXT",
+      ];
+      for (final sql in newCols) {
+        try {
+          await db.execute(sql);
+        } catch (_) {
+          // Column might already exist
+        }
+      }
+    }
+    if (oldVersion < 7) {
+      // Add role to personnel, convert old timekeeping statuses
+      try {
+        await db.execute("ALTER TABLE personnel ADD COLUMN role TEXT");
+      } catch (_) {}
+      
+      // Convert old statuses
+      await db.execute("UPDATE timekeeping SET day_status = 'TX' WHERE day_status = 'work'");
+      await db.execute("UPDATE timekeeping SET day_status = 'NP' WHERE day_status = 'phep'");
+      await db.execute("UPDATE timekeeping SET day_status = 'KP' WHERE day_status = 'kphep'");
+    }
+    if (oldVersion < 8) {
+      // Ensure role column exists if version 7 migration failed previously
+      try {
+        await db.execute("ALTER TABLE personnel ADD COLUMN role TEXT");
+      } catch (_) {}
+    }
+    if (oldVersion < 9) {
+      // Robust sanity check for all personnel columns
+      final List<Map<String, dynamic>> columns = await db.rawQuery("PRAGMA table_info(personnel)");
+      final columnNames = columns.map((c) => c['name'] as String).toSet();
+
+      final requiredColumns = {
+        'cccd': "ALTER TABLE personnel ADD COLUMN cccd TEXT",
+        'role': "ALTER TABLE personnel ADD COLUMN role TEXT",
+        'is_working': "ALTER TABLE personnel ADD COLUMN is_working INTEGER DEFAULT 1",
+        'driver_license': "ALTER TABLE personnel ADD COLUMN driver_license TEXT",
+        'start_date': "ALTER TABLE personnel ADD COLUMN start_date TEXT",
+        'deposit': "ALTER TABLE personnel ADD COLUMN deposit REAL",
+        'seniority_salary': "ALTER TABLE personnel ADD COLUMN seniority_salary REAL DEFAULT 0",
+        'additional_allowance': "ALTER TABLE personnel ADD COLUMN additional_allowance REAL DEFAULT 0",
+      };
+
+      for (var entry in requiredColumns.entries) {
+        if (!columnNames.contains(entry.key)) {
+          try {
+            await db.execute(entry.value);
+          } catch (e) {
+            print("Error adding missing column ${entry.key}: $e");
+          }
+        }
+      }
+    }
   }
 
   // ==================== USER OPERATIONS ====================
@@ -141,6 +232,30 @@ class DatabaseHelper {
     return await db.update(
       'users',
       {'password_hash': passwordHash},
+      where: 'id = ?',
+      whereArgs: [user.id],
+    );
+  }
+
+  Future<int> updateGoogleCredentials(String clientId, String clientSecret) async {
+    final db = await database;
+    final user = await getUser();
+    if (user == null) {
+      return await insertUser(
+        User(
+          passwordHash: '', // Will be handled properly when changing password
+          googleClientId: clientId,
+          googleClientSecret: clientSecret,
+          createdAt: DateTime.now(),
+        ),
+      );
+    }
+    return await db.update(
+      'users',
+      {
+        'google_client_id': clientId,
+        'google_client_secret': clientSecret,
+      },
       where: 'id = ?',
       whereArgs: [user.id],
     );
@@ -393,19 +508,15 @@ class DatabaseHelper {
     final result = await db.rawQuery('''
       SELECT 
         t.personnel_id,
-        t.job_position_id,
         p.name as personnel_name,
         p.is_working as personnel_is_working,
-        p.basic_salary as basic_salary,
-        jp.salary as position_salary,
-        jp.name as position_name,
+        p.role as personnel_role,
         tp.name as transaction_point_name,
         t.date,
         t.day_status
       FROM timekeeping t
       INNER JOIN personnel p ON t.personnel_id = p.id
       INNER JOIN transaction_points tp ON t.transaction_point_id = tp.id
-      INNER JOIN job_positions jp ON t.job_position_id = jp.id
       WHERE $where
       ORDER BY p.name ASC, tp.name ASC
     ''', whereArgs);
@@ -414,90 +525,68 @@ class DatabaseHelper {
 
     for (var row in result) {
       final pId = row['personnel_id'] as int;
-      final jobPositionId = row['job_position_id'] as int;
       final personnelName = row['personnel_name'] as String;
-      final basicSalary = (row['basic_salary'] as num).toDouble();
-      final positionSalary = (row['position_salary'] as num).toDouble();
-      final tpName = row['transaction_point_name'] as String;
-      final date = row['date'] as String;
-      final dayStatus = row['day_status'] as String? ?? DayStatus.work;
+      final personnelRole = row['personnel_role'] as String? ?? '';
       final isWorking = (row['personnel_is_working'] as int? ?? 1) == 1;
+      final tpName = row['transaction_point_name'] as String? ?? 'N/A';
+      final date = row['date'] as String? ?? '';
+      final String dayStatus = row['day_status'] as String? ?? '';
 
       if (!summaryMap.containsKey(pId)) {
         summaryMap[pId] = {
           'personnel_id': pId,
           'personnel_name': personnelName,
-          'basic_salary': basicSalary,
+          'personnel_role': personnelRole,
           'is_working': isWorking,
-          // Map<jobPositionId, {salary, uniqueDates: Set<String>}>
-          'positions': <int, Map<String, dynamic>>{},
-          // Map<tpName, Set<date>> — for display column per transaction point
-          'unique_work_dates_by_tp': <String, Set<String>>{},
-          'phep_dates': <String>{},
-          'kphep_dates': <String>{},
+          // Map<tpName, Set<date>> — for counting TX days per transaction point
+          'tx_dates_by_tp': <String, Set<String>>{},
+          // For whole month totals
+          'px_dates': <String>{},
+          'np_dates': <String>{},
+          'kp_dates': <String>{},
+          'all_working_dates': <String>{}, // To avoid double counting total TX+PX if somehow there are duplicates
         };
       }
 
       final pMap = summaryMap[pId]!;
 
-      if (dayStatus == DayStatus.work) {
-        // Track per-position unique work dates (for correct salary calc)
-        final positions = pMap['positions'] as Map<int, Map<String, dynamic>>;
-        if (!positions.containsKey(jobPositionId)) {
-          positions[jobPositionId] = {
-            'salary': positionSalary,
-            'dates': <String>{},
-          };
-        }
-        (positions[jobPositionId]!['dates'] as Set<String>).add(date);
-
-        // Track per-transaction-point unique work dates (for display columns)
-        final workDatesByTp =
-            pMap['unique_work_dates_by_tp'] as Map<String, Set<String>>;
-        if (!workDatesByTp.containsKey(tpName)) {
-          workDatesByTp[tpName] = <String>{};
-        }
-        workDatesByTp[tpName]!.add(date);
-      } else if (dayStatus == DayStatus.phep) {
-        (pMap['phep_dates'] as Set<String>).add(date);
-      } else if (dayStatus == DayStatus.kphep) {
-        (pMap['kphep_dates'] as Set<String>).add(date);
+      if (dayStatus == 'TX') {
+         final txDatesByTp = pMap['tx_dates_by_tp'] as Map<String, Set<String>>;
+         if (!txDatesByTp.containsKey(tpName)) {
+           txDatesByTp[tpName] = <String>{};
+         }
+         txDatesByTp[tpName]!.add(date);
+         (pMap['all_working_dates'] as Set<String>).add(date);
+      } else if (dayStatus == 'PX') {
+         (pMap['px_dates'] as Set<String>).add(date);
+         (pMap['all_working_dates'] as Set<String>).add(date);
+      } else if (dayStatus == 'NP') {
+         (pMap['np_dates'] as Set<String>).add(date);
+      } else if (dayStatus == 'KP') {
+         (pMap['kp_dates'] as Set<String>).add(date);
       }
     }
 
     return summaryMap.values.map((data) {
-      final workDatesByTp =
-          data['unique_work_dates_by_tp'] as Map<String, Set<String>>;
-      final daysByTransactionPoint =
-          workDatesByTp.map((key, value) => MapEntry(key, value.length));
+      final txDatesByTp = data['tx_dates_by_tp'] as Map<String, Set<String>>;
+      final daysByTransactionPoint = txDatesByTp.map((key, value) => MapEntry(key, value.length));
 
-      final totalDays = daysByTransactionPoint.values.fold(0, (a, b) => a + b);
-      final totalDaysOff = (data['phep_dates'] as Set<String>).length;
-      final totalDaysUnauth = (data['kphep_dates'] as Set<String>).length;
-
-      final double basicSalary = data['basic_salary'] as double;
-
-      // Correct salary: basicSalary + Σ(position.salary × uniqueWorkDays per position)
-      // This avoids double-counting the same day across multiple transaction points
-      final positions = data['positions'] as Map<int, Map<String, dynamic>>;
-      double totalPositionSalary = 0.0;
-      for (var posEntry in positions.values) {
-        final salary = (posEntry['salary'] as num).toDouble();
-        final days = (posEntry['dates'] as Set<String>).length;
-        totalPositionSalary += salary * days;
-      }
-
-      final double totalSalary = basicSalary + totalPositionSalary;
+      final totalPx = (data['px_dates'] as Set<String>).length;
+      final totalDaysOff = (data['np_dates'] as Set<String>).length;
+      final totalDaysUnauth = (data['kp_dates'] as Set<String>).length;
+      // total working days = unique dates where they were either TX or PX
+      final totalWorkingDays = (data['all_working_dates'] as Set<String>).length;
 
       return TimekeepingSummary(
         personnelId: data['personnel_id'],
         personnelName: data['personnel_name'],
+        personnelRole: data['personnel_role'],
         isWorking: data['is_working'] as bool,
-        totalDays: totalDays,
+        totalWorkingDays: totalWorkingDays,
+        totalPxDays: totalPx,
         totalDaysOff: totalDaysOff,
         totalDaysUnauth: totalDaysUnauth,
-        daysByTransactionPoint: daysByTransactionPoint,
-        totalSalary: totalSalary,
+        txDaysByTransactionPoint: daysByTransactionPoint,
       );
     }).toList();
   }

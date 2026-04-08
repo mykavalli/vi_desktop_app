@@ -1,27 +1,28 @@
 /// Day status constants
 class DayStatus {
-  static const String work = 'work';       // Đi làm
-  static const String phep = 'phep';       // Nghỉ phép (authorized)
-  static const String kphep = 'kphep';     // Nghỉ không phép (unauthorized)
+  static const String tx = 'TX';       // Tài xế
+  static const String px = 'PX';       // Phụ xe
+  static const String np = 'NP';       // Nghỉ phép
+  static const String kp = 'KP';       // Nghỉ không phép
 }
 
 class Timekeeping {
   final int? id;
   final int personnelId;
   final DateTime date;
-  final int jobPositionId;
+  final int jobPositionId; // Kept for schema backwards compatibility
   final int transactionPointId;
   final DateTime createdAt;
-  final String dayStatus; // 'work', 'phep', 'kphep'
+  final String dayStatus; // 'TX', 'PX', 'NP', 'KP'
 
   Timekeeping({
     this.id,
     required this.personnelId,
     required this.date,
-    required this.jobPositionId,
+    this.jobPositionId = 1, // Defaulting to 1 as it's no longer managed by user
     required this.transactionPointId,
     required this.createdAt,
-    this.dayStatus = DayStatus.work,
+    this.dayStatus = DayStatus.tx,
   });
 
   Map<String, dynamic> toMap() {
@@ -41,10 +42,10 @@ class Timekeeping {
       id: map['id'],
       personnelId: map['personnel_id'],
       date: DateTime.parse(map['date']),
-      jobPositionId: map['job_position_id'],
+      jobPositionId: map['job_position_id'] ?? 1,
       transactionPointId: map['transaction_point_id'],
       createdAt: DateTime.parse(map['created_at']),
-      dayStatus: map['day_status'] as String? ?? DayStatus.work,
+      dayStatus: map['day_status'] as String? ?? DayStatus.tx,
     );
   }
 
@@ -75,8 +76,6 @@ class TimekeepingDetail {
   final String personnelName;
   final bool personnelIsWorking;
   final DateTime date;
-  final int jobPositionId;
-  final String jobPositionName;
   final int transactionPointId;
   final String transactionPointName;
   final String dayStatus;
@@ -87,11 +86,9 @@ class TimekeepingDetail {
     required this.personnelName,
     this.personnelIsWorking = true,
     required this.date,
-    required this.jobPositionId,
-    required this.jobPositionName,
     required this.transactionPointId,
     required this.transactionPointName,
-    this.dayStatus = DayStatus.work,
+    this.dayStatus = DayStatus.tx,
   });
 
   factory TimekeepingDetail.fromMap(Map<String, dynamic> map) {
@@ -101,11 +98,9 @@ class TimekeepingDetail {
       personnelName: map['personnel_name'],
       personnelIsWorking: (map['personnel_is_working'] as int? ?? 1) == 1,
       date: DateTime.parse(map['date']),
-      jobPositionId: map['job_position_id'],
-      jobPositionName: map['job_position_name'],
       transactionPointId: map['transaction_point_id'],
       transactionPointName: map['transaction_point_name'],
-      dayStatus: map['day_status'] as String? ?? DayStatus.work,
+      dayStatus: map['day_status'] as String? ?? DayStatus.tx,
     );
   }
 }
@@ -113,21 +108,23 @@ class TimekeepingDetail {
 class TimekeepingSummary {
   final int personnelId;
   final String personnelName;
+  final String personnelRole;
   final bool isWorking;
-  final int totalDays;       // work days only
-  final int totalDaysOff;    // phep days
-  final int totalDaysUnauth; // kphep days
-  final Map<String, int> daysByTransactionPoint;
-  final double totalSalary;
+  final int totalWorkingDays; // TX + PX
+  final int totalPxDays; // PX
+  final int totalDaysOff; // NP
+  final int totalDaysUnauth; // KP
+  final Map<String, int> txDaysByTransactionPoint; // Only counts TX
 
   TimekeepingSummary({
     required this.personnelId,
     required this.personnelName,
+    required this.personnelRole,
     this.isWorking = true,
-    required this.totalDays,
+    required this.totalWorkingDays,
+    required this.totalPxDays,
     this.totalDaysOff = 0,
     this.totalDaysUnauth = 0,
-    required this.daysByTransactionPoint,
-    this.totalSalary = 0.0,
+    required this.txDaysByTransactionPoint,
   });
 }

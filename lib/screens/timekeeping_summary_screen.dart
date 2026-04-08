@@ -6,7 +6,6 @@ import '../database/database_helper.dart';
 import '../models/personnel.dart';
 import '../models/transaction_point.dart';
 import '../models/timekeeping.dart';
-import '../utils/currency_format.dart';
 import '../state/app_state.dart';
 
 class TimekeepingSummaryScreen extends StatefulWidget {
@@ -57,11 +56,26 @@ class _TimekeepingSummaryScreenState extends State<TimekeepingSummaryScreen> {
 
   Future<void> _loadData() async {
     setState(() => _isLoading = true);
-    // Load ALL personnel including resigned for historical filtering
-    _personnelList = await _db.getAllPersonnel(activeOnly: true, workingOnly: false);
-    _transactionPoints = await _db.getAllTransactionPoints();
-    await _loadSummary();
-    setState(() => _isLoading = false);
+    try {
+      _personnelList = await _db.getAllPersonnel(activeOnly: true, workingOnly: false);
+      _transactionPoints = await _db.getAllTransactionPoints();
+      await _loadSummary();
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    } catch (e, st) {
+      if (mounted) {
+        setState(() => _isLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Lỗi tải dữ liệu chấm công: $e'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 10),
+          ),
+        );
+      }
+      print('Load summary error: $e\n$st');
+    }
   }
 
   Future<void> _loadSummary() async {
@@ -86,11 +100,16 @@ class _TimekeepingSummaryScreenState extends State<TimekeepingSummaryScreen> {
     excel.rename(defaultSheet, 'Cham cong tong hop');
     final sheet = excel['Cham cong tong hop'];
 
-    final headers = ['STT', 'Tên nhân sự', 'Tổng ngày', 'Nghỉ Phép', 'Nghỉ K Phép'];
+    final headers = ['STT', 'Tên nhân viên', 'Vai trò'];
+    final colWidths = [6.0, 25.0, 15.0];
+    
     for (var tp in _transactionPoints) {
-      headers.add(tp.name);
+      headers.add('TX\n${tp.name}');
+      colWidths.add(15.0);
     }
-    headers.add('Tổng tiền lương');
+    
+    headers.addAll(['Tổng PX', 'Tổng ngày làm', 'Tổng nghỉ', 'N.Phép', 'K.Phép']);
+    colWidths.addAll([12.0, 15.0, 12.0, 10.0, 10.0]);
 
     xls.CellStyle headerStyle = xls.CellStyle(
       bold: true,
@@ -112,23 +131,24 @@ class _TimekeepingSummaryScreenState extends State<TimekeepingSummaryScreen> {
           xls.CellIndex.indexByColumnRow(columnIndex: i, rowIndex: 0));
       cell.value = xls.TextCellValue(headers[i]);
       cell.cellStyle = headerStyle;
-      sheet.setColumnWidth(i, i == 1 ? 25.0 : 15.0);
+      sheet.setColumnWidth(i, colWidths[i]);
     }
 
-    int grandTotalDays = 0;
+    int grandTotalPxDays = 0;
+    int grandTotalWorkingDays = 0;
     int grandTotalOff = 0;
     int grandTotalUnauth = 0;
-    double grandTotalSalary = 0.0;
-    Map<String, int> grandTotalTpDays = {};
+    Map<String, int> grandTotalTxTpDays = {};
 
     final list = _filteredSummaries;
     for (int i = 0; i < list.length; i++) {
       final summary = list[i];
       final rowIndex = i + 1;
-      grandTotalDays += summary.totalDays;
+      
+      grandTotalPxDays += summary.totalPxDays;
+      grandTotalWorkingDays += summary.totalWorkingDays;
       grandTotalOff += summary.totalDaysOff;
       grandTotalUnauth += summary.totalDaysUnauth;
-      grandTotalSalary += summary.totalSalary;
 
       sheet.cell(xls.CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: rowIndex))
         ..value = xls.TextCellValue('${i + 1}')
@@ -136,29 +156,37 @@ class _TimekeepingSummaryScreenState extends State<TimekeepingSummaryScreen> {
       sheet.cell(xls.CellIndex.indexByColumnRow(columnIndex: 1, rowIndex: rowIndex))
         ..value = xls.TextCellValue(summary.personnelName)
         ..cellStyle = bodyStyle;
+        
+      String roleStr = summary.personnelRole == 'TX' ? 'Tài xế' : (summary.personnelRole == 'PX' ? 'Phụ xe' : '');
       sheet.cell(xls.CellIndex.indexByColumnRow(columnIndex: 2, rowIndex: rowIndex))
-        ..value = xls.IntCellValue(summary.totalDays)
-        ..cellStyle = bodyStyle;
-      sheet.cell(xls.CellIndex.indexByColumnRow(columnIndex: 3, rowIndex: rowIndex))
-        ..value = xls.IntCellValue(summary.totalDaysOff)
-        ..cellStyle = bodyStyle;
-      sheet.cell(xls.CellIndex.indexByColumnRow(columnIndex: 4, rowIndex: rowIndex))
-        ..value = xls.IntCellValue(summary.totalDaysUnauth)
+        ..value = xls.TextCellValue(roleStr)
         ..cellStyle = bodyStyle;
 
       for (int j = 0; j < _transactionPoints.length; j++) {
         final tpName = _transactionPoints[j].name;
-        final days = summary.daysByTransactionPoint[tpName] ?? 0;
-        grandTotalTpDays[tpName] = (grandTotalTpDays[tpName] ?? 0) + days;
-        sheet.cell(xls.CellIndex.indexByColumnRow(columnIndex: j + 5, rowIndex: rowIndex))
+        final days = summary.txDaysByTransactionPoint[tpName] ?? 0;
+        grandTotalTxTpDays[tpName] = (grandTotalTxTpDays[tpName] ?? 0) + days;
+        sheet.cell(xls.CellIndex.indexByColumnRow(columnIndex: j + 3, rowIndex: rowIndex))
           ..value = xls.IntCellValue(days)
           ..cellStyle = bodyStyle;
       }
 
-      sheet.cell(xls.CellIndex.indexByColumnRow(
-              columnIndex: _transactionPoints.length + 5, rowIndex: rowIndex))
-        ..value = xls.TextCellValue(
-            CurrencyFormat.formatNumberOnly(summary.totalSalary))
+      int offset = _transactionPoints.length + 3;
+      
+      sheet.cell(xls.CellIndex.indexByColumnRow(columnIndex: offset, rowIndex: rowIndex))
+        ..value = xls.IntCellValue(summary.totalPxDays)
+        ..cellStyle = bodyStyle;
+      sheet.cell(xls.CellIndex.indexByColumnRow(columnIndex: offset + 1, rowIndex: rowIndex))
+        ..value = xls.IntCellValue(summary.totalWorkingDays)
+        ..cellStyle = bodyStyle;
+      sheet.cell(xls.CellIndex.indexByColumnRow(columnIndex: offset + 2, rowIndex: rowIndex))
+        ..value = xls.IntCellValue(summary.totalDaysOff + summary.totalDaysUnauth)
+        ..cellStyle = bodyStyle;
+      sheet.cell(xls.CellIndex.indexByColumnRow(columnIndex: offset + 3, rowIndex: rowIndex))
+        ..value = xls.IntCellValue(summary.totalDaysOff)
+        ..cellStyle = bodyStyle;
+      sheet.cell(xls.CellIndex.indexByColumnRow(columnIndex: offset + 4, rowIndex: rowIndex))
+        ..value = xls.IntCellValue(summary.totalDaysUnauth)
         ..cellStyle = bodyStyle;
     }
 
@@ -166,21 +194,20 @@ class _TimekeepingSummaryScreenState extends State<TimekeepingSummaryScreen> {
     final totalsRowIndex = list.length + 1;
     _setExcelCell(sheet, 0, totalsRowIndex, xls.TextCellValue(''), headerStyle);
     _setExcelCell(sheet, 1, totalsRowIndex, xls.TextCellValue('Tổng cộng'), headerStyle);
-    _setExcelCell(sheet, 2, totalsRowIndex, xls.IntCellValue(grandTotalDays), headerStyle);
-    _setExcelCell(sheet, 3, totalsRowIndex, xls.IntCellValue(grandTotalOff), headerStyle);
-    _setExcelCell(sheet, 4, totalsRowIndex, xls.IntCellValue(grandTotalUnauth), headerStyle);
+    _setExcelCell(sheet, 2, totalsRowIndex, xls.TextCellValue(''), headerStyle);
 
     for (int j = 0; j < _transactionPoints.length; j++) {
       final tpName = _transactionPoints[j].name;
-      _setExcelCell(sheet, j + 5, totalsRowIndex,
-          xls.IntCellValue(grandTotalTpDays[tpName] ?? 0), headerStyle);
+      _setExcelCell(sheet, j + 3, totalsRowIndex,
+          xls.IntCellValue(grandTotalTxTpDays[tpName] ?? 0), headerStyle);
     }
-    _setExcelCell(
-        sheet,
-        _transactionPoints.length + 5,
-        totalsRowIndex,
-        xls.TextCellValue(CurrencyFormat.formatNumberOnly(grandTotalSalary)),
-        headerStyle);
+    
+    int totalsOffset = _transactionPoints.length + 3;
+    _setExcelCell(sheet, totalsOffset, totalsRowIndex, xls.IntCellValue(grandTotalPxDays), headerStyle);
+    _setExcelCell(sheet, totalsOffset + 1, totalsRowIndex, xls.IntCellValue(grandTotalWorkingDays), headerStyle);
+    _setExcelCell(sheet, totalsOffset + 2, totalsRowIndex, xls.IntCellValue(grandTotalOff + grandTotalUnauth), headerStyle);
+    _setExcelCell(sheet, totalsOffset + 3, totalsRowIndex, xls.IntCellValue(grandTotalOff), headerStyle);
+    _setExcelCell(sheet, totalsOffset + 4, totalsRowIndex, xls.IntCellValue(grandTotalUnauth), headerStyle);
 
     final outputPath = await FilePicker.platform.saveFile(
       dialogTitle: 'Lưu file Excel',
@@ -225,7 +252,6 @@ class _TimekeepingSummaryScreenState extends State<TimekeepingSummaryScreen> {
   Future<void> _openFile(String path) async {
     try {
       if (Platform.isWindows) {
-        // 'start' opens the file with its default associated application
         await Process.run('cmd', ['/c', 'start', '""', path]);
       } else if (Platform.isMacOS) {
         await Process.run('open', [path]);
@@ -239,27 +265,27 @@ class _TimekeepingSummaryScreenState extends State<TimekeepingSummaryScreen> {
   Widget build(BuildContext context) {
     final filtered = _filteredSummaries;
 
-    int grandTotalDays = 0;
+    int grandTotalPxDays = 0;
+    int grandTotalWorkingDays = 0;
     int grandTotalOff = 0;
     int grandTotalUnauth = 0;
-    double grandTotalSalary = 0.0;
-    Map<String, int> grandTotalTpDays = {};
+    Map<String, int> grandTotalTxTpDays = {};
 
     for (var summary in filtered) {
-      grandTotalDays += summary.totalDays;
+      grandTotalPxDays += summary.totalPxDays;
+      grandTotalWorkingDays += summary.totalWorkingDays;
       grandTotalOff += summary.totalDaysOff;
       grandTotalUnauth += summary.totalDaysUnauth;
-      grandTotalSalary += summary.totalSalary;
       for (var tp in _transactionPoints) {
-        grandTotalTpDays[tp.name] = (grandTotalTpDays[tp.name] ?? 0) +
-            (summary.daysByTransactionPoint[tp.name] ?? 0);
+        grandTotalTxTpDays[tp.name] = (grandTotalTxTpDays[tp.name] ?? 0) +
+            (summary.txDaysByTransactionPoint[tp.name] ?? 0);
       }
     }
 
     return Scaffold(
       body: Column(
         children: [
-          // ── Filter toolbar — always left-aligned ──────────────
+          // Filter toolbar
           Align(
             alignment: Alignment.center,
             child: Container(
@@ -284,271 +310,276 @@ class _TimekeepingSummaryScreenState extends State<TimekeepingSummaryScreen> {
                         onChanged: (v) => setState(() => _selectedMonth = v!),
                       ),
                     ),
-                    const SizedBox(width: 12),
+                    const SizedBox(width: 16),
                     MouseRegion(
                       cursor: SystemMouseCursors.click,
                       child: DropdownButton<int>(
                         value: _selectedYear,
                         items: List.generate(10, (i) {
-                          final y = DateTime.now().year - 5 + i;
-                          return DropdownMenuItem(value: y, child: Text('Năm $y'));
+                          final year = DateTime.now().year - 5 + i;
+                          return DropdownMenuItem(
+                            value: year,
+                            child: Text('Năm $year'),
+                          );
                         }),
                         onChanged: (v) => setState(() => _selectedYear = v!),
                       ),
                     ),
-                    const SizedBox(width: 12),
-                    MouseRegion(
-                      cursor: SystemMouseCursors.click,
-                      child: SizedBox(
-                        width: 200,
-                        child: DropdownButtonFormField<int?>(
-                          value: _selectedPersonnelId,
-                          decoration: const InputDecoration(
-                            labelText: 'Nhân sự',
-                            border: OutlineInputBorder(),
-                            contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                            isDense: true,
-                          ),
-                          items: [
-                            const DropdownMenuItem<int?>(value: null, child: Text('Tất cả')),
-                            ..._personnelList.map((p) {
-                              final isResigned = !p.isWorking;
-                              return DropdownMenuItem(
-                                value: p.id,
-                                child: Text(
-                                  p.name + (isResigned ? ' [Đã nghỉ]' : ''),
-                                  style: TextStyle(
-                                    color: isResigned ? Colors.grey.shade500 : null,
-                                  ),
-                                ),
-                              );
-                            }),
-                          ],
-                          onChanged: (v) => setState(() => _selectedPersonnelId = v),
+                    const SizedBox(width: 16),
+                    // Personnel Filter
+                    SizedBox(
+                      width: 200,
+                      child: DropdownButtonFormField<int?>(
+                        decoration: const InputDecoration(
+                          border: OutlineInputBorder(),
+                          contentPadding:
+                              EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          isDense: true,
                         ),
+                        hint: const Text('Tất cả nhân sự'),
+                        value: _selectedPersonnelId,
+                        items: [
+                          const DropdownMenuItem<int?>(
+                              value: null, child: Text('Tất cả nhân sự')),
+                          ..._personnelList.map((p) => DropdownMenuItem(
+                                value: p.id,
+                                child: Text(p.name,
+                                    overflow: TextOverflow.ellipsis),
+                              )),
+                        ],
+                        onChanged: (val) =>
+                            setState(() => _selectedPersonnelId = val),
                       ),
                     ),
-                    const SizedBox(width: 12),
-                    // Search by name
+                    const SizedBox(width: 16),
+                    ElevatedButton.icon(
+                      onPressed: _loadData,
+                      icon: const Icon(Icons.filter_alt),
+                      label: const Text('Lọc'),
+                    ),
+                    const SizedBox(width: 24),
                     SizedBox(
                       width: 200,
                       child: TextField(
                         controller: _searchController,
                         decoration: InputDecoration(
-                          labelText: 'Tìm tên nhân viên',
+                          labelText: 'Tìm nhân viên...',
+                          prefixIcon: const Icon(Icons.search),
                           border: const OutlineInputBorder(),
                           isDense: true,
                           contentPadding: const EdgeInsets.symmetric(
                               horizontal: 12, vertical: 8),
-                          prefixIcon: const Icon(Icons.search, size: 18),
                           suffixIcon: _searchQuery.isNotEmpty
-                              ? MouseRegion(
-                                  cursor: SystemMouseCursors.click,
-                                  child: IconButton(
-                                    icon: const Icon(Icons.clear, size: 16),
-                                    onPressed: () {
-                                      _searchController.clear();
-                                      setState(() => _searchQuery = '');
-                                    },
-                                  ),
+                              ? IconButton(
+                                  icon: const Icon(Icons.clear, size: 18),
+                                  onPressed: () {
+                                    _searchController.clear();
+                                    setState(() => _searchQuery = '');
+                                  },
                                 )
                               : null,
                         ),
                         onChanged: (v) => setState(() => _searchQuery = v),
                       ),
                     ),
-                    const SizedBox(width: 12),
-                    MouseRegion(
-                      cursor: SystemMouseCursors.click,
-                      child: ElevatedButton.icon(
-                        onPressed: () async {
-                          setState(() => _isLoading = true);
-                          await _loadSummary();
-                          setState(() => _isLoading = false);
-                        },
-                        icon: const Icon(Icons.search),
-                        label: const Text('Tìm kiếm'),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    MouseRegion(
-                      cursor: SystemMouseCursors.click,
-                      child: ElevatedButton.icon(
-                        onPressed: _summaries.isEmpty ? null : _exportToExcel,
-                        icon: const Icon(Icons.download),
-                        label: const Text('Xuất Excel'),
-                      ),
+                    const SizedBox(width: 16),
+                    ElevatedButton.icon(
+                      onPressed:
+                          _filteredSummaries.isEmpty ? null : _exportToExcel,
+                      icon: const Icon(Icons.download),
+                      label: const Text('Xuất Excel'),
                     ),
                   ],
                 ),
               ),
             ),
           ),
-
-          // ── Content — always top-left aligned ─────────────────
           Expanded(
             child: _isLoading
                 ? const Center(child: CircularProgressIndicator())
                 : filtered.isEmpty
                     ? Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(Icons.summarize_outlined,
-                                size: 80, color: Colors.grey[400]),
-                            const SizedBox(height: 16),
-                            Text(
-                              'Không có dữ liệu chấm công',
-                              style: TextStyle(
-                                  fontSize: 18, color: Colors.grey[600]),
-                            ),
-                          ],
+                        child: Text(
+                          'Không có dữ liệu trong khoảng thời gian này.',
+                          style: TextStyle(
+                              fontSize: 18, color: Colors.grey[600]),
                         ),
                       )
-                    // Data always starts at top-left; overflows scroll right
-                    : Align(
-                        alignment: Alignment.topLeft,
+                    : Scrollbar(
+                        controller: _horizontalScrollController,
+                        thumbVisibility: true,
                         child: SingleChildScrollView(
-                          padding: const EdgeInsets.all(16),
+                          controller: _horizontalScrollController,
+                          scrollDirection: Axis.horizontal,
                           child: SingleChildScrollView(
-                            scrollDirection: Axis.horizontal,
-                            controller: _horizontalScrollController,
-                            child: Card(
+                            child: Padding(
+                              padding: const EdgeInsets.all(16.0),
                               child: DataTable(
                                 border: TableBorder.all(
                                     color: Colors.grey.shade300),
-                                headingRowColor:
-                                    WidgetStateProperty.all(Colors.blue[50]),
+                                headingRowColor: WidgetStateProperty.all(
+                                    Colors.blue[50]),
+                                dataRowMinHeight: 40,
+                                dataRowMaxHeight: 48,
                                 columns: [
-                                  const DataColumn(label: Text('STT')),
-                                  const DataColumn(label: Text('Tên nhân sự')),
                                   const DataColumn(
-                                    label: Text('Tổng ngày'),
-                                    numeric: true,
-                                  ),
-                                  DataColumn(
-                                    label: Text('Nghỉ Phép',
-                                        style: TextStyle(
-                                            color: Colors.blue.shade700)),
-                                    numeric: true,
-                                  ),
-                                  DataColumn(
-                                    label: Text('Nghỉ K Phép',
-                                        style: TextStyle(
-                                            color: Colors.orange.shade700)),
-                                    numeric: true,
-                                  ),
-                                  ..._transactionPoints.map((tp) =>
-                                      DataColumn(
-                                          label: Text(tp.name), numeric: true)),
+                                      label: Text('Nhân sự',
+                                          style: TextStyle(
+                                              fontWeight: FontWeight.bold))),
                                   const DataColumn(
-                                    label: Text('Tổng tiền lương'),
-                                    numeric: true,
-                                  ),
+                                      label: Text('Vai trò',
+                                          style: TextStyle(
+                                              fontWeight: FontWeight.bold))),
+                                  ..._transactionPoints.map((tp) => DataColumn(
+                                      label: Text('TX\n${tp.name}',
+                                          textAlign: TextAlign.center,
+                                          style: const TextStyle(
+                                              fontWeight: FontWeight.bold)))),
+                                  const DataColumn(
+                                      label: Text('Tổng PX',
+                                          style: TextStyle(
+                                              fontWeight: FontWeight.bold,
+                                              color: Colors.blueGrey))),
+                                  const DataColumn(
+                                      label: Text('Tổng\nngày làm',
+                                          textAlign: TextAlign.center,
+                                          style: TextStyle(
+                                              fontWeight: FontWeight.bold,
+                                              color: Colors.blue))),
+                                  const DataColumn(
+                                      label: Text('Tổng\nnghỉ',
+                                          textAlign: TextAlign.center,
+                                          style: TextStyle(
+                                              fontWeight: FontWeight.bold,
+                                              color: Colors.deepOrange))),
+                                  const DataColumn(
+                                      label: Text('N.Phép',
+                                          style: TextStyle(
+                                              fontWeight: FontWeight.bold,
+                                              color: Colors.orange))),
+                                  const DataColumn(
+                                      label: Text('K.Phép',
+                                          style: TextStyle(
+                                              fontWeight: FontWeight.bold,
+                                              color: Colors.red))),
                                 ],
                                 rows: [
-                                  ...List.generate(filtered.length, (index) {
-                                    final summary = filtered[index];
-                                    return DataRow(
-                                      cells: [
-                                        DataCell(Text('${index + 1}')),
-                                        // Clickable name → navigate to Personnel tab
-                                        DataCell(
-                                          MouseRegion(
-                                            cursor: SystemMouseCursors.click,
-                                            child: InkWell(
-                                              onTap: widget.onNavigate != null
-                                                  ? () => widget.onNavigate!(1)
-                                                  : null,
-                                              child: Text(
-                                                summary.personnelName,
-                                                style: TextStyle(
-                                                  color: !summary.isWorking
-                                                      ? Colors.grey.shade500
-                                                      : Theme.of(context).primaryColor,
-                                                  decoration:
-                                                      TextDecoration.underline,
-                                                  decorationColor: !summary.isWorking
-                                                      ? Colors.grey.shade500
-                                                      : Theme.of(context).primaryColor,
-                                                ),
-                                              ),
-                                            ),
-                                          ),
-                                        ),
-                                        DataCell(
-                                            Text('${summary.totalDays}')),
-                                        DataCell(Text(
-                                          '${summary.totalDaysOff}',
-                                          style: TextStyle(
-                                            color: summary.totalDaysOff > 0
-                                                ? Colors.blue.shade700
-                                                : null,
-                                          ),
-                                        )),
-                                        DataCell(Text(
-                                          '${summary.totalDaysUnauth}',
-                                          style: TextStyle(
-                                            color:
-                                                summary.totalDaysUnauth > 0
-                                                    ? Colors.orange.shade700
-                                                    : null,
-                                          ),
-                                        )),
-                                        ..._transactionPoints.map((tp) =>
-                                            DataCell(Text(
-                                              '${summary.daysByTransactionPoint[tp.name] ?? 0}',
-                                            ))),
-                                        DataCell(Text(
-                                          CurrencyFormat.formatVN(
-                                              summary.totalSalary),
+                                  ...filtered.map((summary) {
+                                    final cells = <DataCell>[];
+                                    // 1. Tên
+                                    cells.add(DataCell(Text(
+                                      summary.personnelName,
+                                      style: TextStyle(
+                                        color: summary.isWorking
+                                            ? Colors.black87
+                                            : Colors.grey,
+                                      ),
+                                    )));
+                                    
+                                    // 2. Vai trò
+                                    String roleStr = summary.personnelRole == 'TX' ? 'Tài xế' : (summary.personnelRole == 'PX' ? 'Phụ xe' : '');
+                                    cells.add(DataCell(Text(roleStr)));
+
+                                    // 3. Các cột TX theo điểm giao dịch
+                                    for (var tp in _transactionPoints) {
+                                      final days =
+                                          summary.txDaysByTransactionPoint[tp.name] ??
+                                              0;
+                                      cells.add(DataCell(Text(
+                                          days > 0 ? days.toString() : '-')));
+                                    }
+
+                                    // 4. Tổng PX
+                                    cells.add(DataCell(Text(
+                                        summary.totalPxDays > 0 ? summary.totalPxDays.toString() : '-',
+                                        style: const TextStyle(fontWeight: FontWeight.bold))));
+                                        
+                                    // 5. Tổng ngày làm (TX+PX)
+                                    cells.add(DataCell(Text(
+                                        summary.totalWorkingDays > 0 ? summary.totalWorkingDays.toString() : '-',
+                                        style: const TextStyle(
+                                            fontWeight: FontWeight.bold,
+                                            color: Colors.blue))));
+
+                                    // 6. Nghỉ phép
+                                    cells.add(DataCell(Text(
+                                      summary.totalDaysOff > 0
+                                          ? summary.totalDaysOff.toString()
+                                          : '-',
+                                      style: TextStyle(
+                                          color: summary.totalDaysOff > 0
+                                              ? Colors.orange.shade800
+                                              : Colors.grey),
+                                    )));
+
+                                    // 7. Không phép
+                                    cells.add(DataCell(Text(
+                                      summary.totalDaysUnauth > 0
+                                          ? summary.totalDaysUnauth.toString()
+                                          : '-',
+                                      style: TextStyle(
+                                          color: summary.totalDaysUnauth > 0
+                                              ? Colors.red.shade800
+                                              : Colors.grey),
+                                    )));
+
+                                    return DataRow(cells: cells);
+                                  }),
+
+                                  // Tổng cộng Row
+                                  DataRow(
+                                    color: WidgetStateProperty.all(
+                                        Colors.green.shade50),
+                                    cells: [
+                                      const DataCell(Text(
+                                        'TỔNG CỘNG',
+                                        style: TextStyle(
+                                            fontWeight: FontWeight.bold,
+                                            color: Colors.green),
+                                      )),
+                                      const DataCell(Text('')), // Cột vai trò
+                                      ..._transactionPoints.map((tp) {
+                                        final totalForTp =
+                                            grandTotalTxTpDays[tp.name] ?? 0;
+                                        return DataCell(Text(
+                                          totalForTp > 0
+                                              ? totalForTp.toString()
+                                              : '-',
                                           style: const TextStyle(
                                               fontWeight: FontWeight.bold,
                                               color: Colors.green),
-                                        )),
-                                      ],
-                                    );
-                                  }),
-                                  // Grand totals row
-                                  if (filtered.isNotEmpty)
-                                    DataRow(
-                                      color: WidgetStateProperty.all(
-                                          Colors.amber.shade100),
-                                      cells: [
-                                        const DataCell(Text('')),
-                                        const DataCell(Text('Tổng cộng',
-                                            style: TextStyle(
-                                                fontWeight: FontWeight.bold))),
-                                        DataCell(Text(
-                                            grandTotalDays.toString(),
-                                            style: const TextStyle(
-                                                fontWeight: FontWeight.bold))),
-                                        DataCell(Text(
-                                            grandTotalOff.toString(),
-                                            style: TextStyle(
-                                                fontWeight: FontWeight.bold,
-                                                color: Colors.blue.shade700))),
-                                        DataCell(Text(
-                                            grandTotalUnauth.toString(),
-                                            style: TextStyle(
-                                                fontWeight: FontWeight.bold,
-                                                color:
-                                                    Colors.orange.shade700))),
-                                        ..._transactionPoints.map((tp) =>
-                                            DataCell(Text(
-                                              '${grandTotalTpDays[tp.name] ?? 0}',
-                                              style: const TextStyle(
-                                                  fontWeight: FontWeight.bold),
-                                            ))),
-                                        DataCell(Text(
-                                          CurrencyFormat.formatVN(
-                                              grandTotalSalary),
-                                          style: const TextStyle(
-                                              fontWeight: FontWeight.bold,
-                                              color: Colors.red),
-                                        )),
-                                      ],
-                                    ),
+                                        ));
+                                      }),
+                                      DataCell(Text(
+                                        grandTotalPxDays > 0 ? grandTotalPxDays.toString() : '-',
+                                        style: const TextStyle(
+                                            fontWeight: FontWeight.bold,
+                                            color: Colors.green),
+                                      )),
+                                      DataCell(Text(
+                                        grandTotalWorkingDays > 0 ? grandTotalWorkingDays.toString() : '-',
+                                        style: const TextStyle(
+                                            fontWeight: FontWeight.bold,
+                                            color: Colors.blue),
+                                      )),
+                                      DataCell(Text(
+                                        grandTotalOff > 0
+                                            ? grandTotalOff.toString()
+                                            : '-',
+                                        style: const TextStyle(
+                                            fontWeight: FontWeight.bold,
+                                            color: Colors.green),
+                                      )),
+                                      DataCell(Text(
+                                        grandTotalUnauth > 0
+                                            ? grandTotalUnauth.toString()
+                                            : '-',
+                                        style: const TextStyle(
+                                            fontWeight: FontWeight.bold,
+                                            color: Colors.green),
+                                      )),
+                                    ],
+                                  ),
                                 ],
                               ),
                             ),

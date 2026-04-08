@@ -6,6 +6,7 @@ import 'dart:io';
 import '../database/database_helper.dart';
 import '../models/personnel.dart';
 import '../state/app_state.dart';
+import '../utils/currency_format.dart';
 
 class PersonnelScreen extends StatefulWidget {
   const PersonnelScreen({super.key});
@@ -47,25 +48,41 @@ class _PersonnelScreenState extends State<PersonnelScreen> {
 
   Future<void> _loadPersonnel() async {
     setState(() => _isLoading = true);
-    // Load all active personnel including resigned (is_active=1, any is_working)
-    final personnel = await _db.getAllPersonnel(activeOnly: true, workingOnly: false);
-    setState(() {
-      _personnel = personnel;
-      _isLoading = false;
-    });
+    try {
+      final personnel = await _db.getAllPersonnel(activeOnly: true, workingOnly: false);
+      if (mounted) {
+        setState(() {
+          _personnel = personnel;
+          _isLoading = false;
+        });
+      }
+    } catch (e, st) {
+      if (mounted) {
+        setState(() => _isLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Lỗi tải dữ liệu nhân viên: $e'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 10),
+          ),
+        );
+      }
+      print('Load personnel error: $e\n$st');
+    }
   }
 
   void _showAddEditDialog({Personnel? personnel}) {
     final nameController = TextEditingController(text: personnel?.name ?? '');
-    final salaryController = TextEditingController(
-      text: personnel?.basicSalary.toStringAsFixed(0) ?? '',
+    final cccdController = TextEditingController(
+      text: personnel?.cccd ?? '',
     );
     final driverLicenseController =
         TextEditingController(text: personnel?.driverLicense ?? '');
     final depositController = TextEditingController(
-      text: personnel?.deposit?.toStringAsFixed(0) ?? '',
+      text: personnel != null && personnel.deposit != null ? CurrencyFormat.formatNumberOnly(personnel.deposit!) : '',
     );
     DateTime? selectedStartDate = personnel?.startDate;
+    String? selectedRole = personnel?.role;
 
     final formKey = GlobalKey<FormState>();
 
@@ -99,27 +116,34 @@ class _PersonnelScreenState extends State<PersonnelScreen> {
                       },
                     ),
                     const SizedBox(height: 14),
-                    // Lương cơ bản (required)
+                    // Vai trò (Tài xế / Phụ xe) (not required)
+                    DropdownButtonFormField<String>(
+                      value: selectedRole,
+                      decoration: const InputDecoration(
+                        labelText: 'Vai trò (không bắt buộc)',
+                        border: OutlineInputBorder(),
+                        prefixIcon: Icon(Icons.work_outline),
+                      ),
+                      items: const [
+                        DropdownMenuItem(value: null, child: Text('Không chọn')),
+                        DropdownMenuItem(value: 'TX', child: Text('Tài xế')),
+                        DropdownMenuItem(value: 'PX', child: Text('Phụ xe')),
+                      ],
+                      onChanged: (value) {
+                        setDialogState(() => selectedRole = value);
+                      },
+                    ),
+                    const SizedBox(height: 14),
+                    // Căn cước công dân (not required)
                     TextFormField(
-                      controller: salaryController,
+                      controller: cccdController,
                       textInputAction: TextInputAction.next,
                       decoration: const InputDecoration(
-                        labelText: 'Mức lương cơ bản *',
+                        labelText: 'Số CCCD (không bắt buộc)',
                         border: OutlineInputBorder(),
-                        suffixText: 'VNĐ',
-                        prefixIcon: Icon(Icons.payments),
+                        prefixIcon: Icon(Icons.badge),
                       ),
                       keyboardType: TextInputType.number,
-                      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                      validator: (value) {
-                        if (value == null || value.isEmpty) {
-                          return 'Vui lòng nhập mức lương';
-                        }
-                        if (double.tryParse(value) == null) {
-                          return 'Mức lương không hợp lệ';
-                        }
-                        return null;
-                      },
                     ),
                     const SizedBox(height: 14),
                     // Ngày vào làm (not required) — date picker
@@ -201,7 +225,7 @@ class _PersonnelScreenState extends State<PersonnelScreen> {
                         prefixIcon: Icon(Icons.security),
                       ),
                       keyboardType: TextInputType.number,
-                      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                      inputFormatters: [CurrencyInputFormatter()],
                     ),
                   ],
                 ),
@@ -215,33 +239,42 @@ class _PersonnelScreenState extends State<PersonnelScreen> {
             ),
             ElevatedButton(
               onPressed: () async {
-                if (formKey.currentState!.validate()) {
-                  final newPersonnel = Personnel(
-                    id: personnel?.id,
-                    name: nameController.text.trim(),
-                    basicSalary: double.parse(salaryController.text),
-                    isWorking: personnel?.isWorking ?? true,
-                    driverLicense: driverLicenseController.text.trim().isEmpty
-                        ? null
-                        : driverLicenseController.text.trim(),
-                    startDate: selectedStartDate,
-                    deposit: depositController.text.trim().isEmpty
-                        ? null
-                        : double.tryParse(depositController.text),
-                    createdAt: personnel?.createdAt ?? DateTime.now(),
-                  );
+                  if (formKey.currentState!.validate()) {
+                    final newPersonnel = Personnel(
+                      id: personnel?.id,
+                      name: nameController.text.trim(),
+                      cccd: cccdController.text.trim().isEmpty ? null : cccdController.text.trim(),
+                      role: selectedRole,
+                      isWorking: personnel?.isWorking ?? true,
+                      driverLicense: driverLicenseController.text.trim().isEmpty
+                          ? null
+                          : driverLicenseController.text.trim(),
+                      startDate: selectedStartDate,
+                      deposit: depositController.text.trim().isEmpty
+                          ? null
+                          : CurrencyInputFormatter.parse(depositController.text),
+                      createdAt: personnel?.createdAt ?? DateTime.now(),
+                    );
 
-                  if (personnel == null) {
-                    await _db.insertPersonnel(newPersonnel);
-                  } else {
-                    await _db.updatePersonnel(newPersonnel);
-                  }
+                  try {
+                    if (personnel == null) {
+                      await _db.insertPersonnel(newPersonnel);
+                    } else {
+                      await _db.updatePersonnel(newPersonnel);
+                    }
 
-                  AppState.instance.refresh();
+                    AppState.instance.refresh();
 
-                  if (mounted) {
-                    Navigator.pop(context);
-                    _loadPersonnel();
+                    if (mounted) {
+                      Navigator.pop(context);
+                      _loadPersonnel();
+                    }
+                  } catch (e) {
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('Error saving: $e')),
+                      );
+                    }
                   }
                 }
               },
@@ -288,12 +321,7 @@ class _PersonnelScreenState extends State<PersonnelScreen> {
   }
 
   String _formatCurrency(double amount) {
-    return amount
-        .toStringAsFixed(0)
-        .replaceAllMapped(
-          RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
-          (Match m) => '${m[1]}.',
-        );
+    return CurrencyFormat.formatNumberOnly(amount);
   }
 
   String _formatDate(DateTime date) {
@@ -342,14 +370,15 @@ class _PersonnelScreenState extends State<PersonnelScreen> {
       'STT',
       'Họ tên nhân viên',
       'Trạng thái',
-      'Lương cơ bản (VNĐ)',
+      'Vai trò',
+      'CCCD',
       'Ngày vào làm',
       'Bằng lái xe',
       'Tiền thế chân (VNĐ)',
       'Ngày tạo',
     ];
 
-    final colWidths = [6.0, 28.0, 15.0, 22.0, 16.0, 15.0, 22.0, 16.0];
+    final colWidths = [6.0, 28.0, 15.0, 12.0, 22.0, 16.0, 15.0, 22.0, 16.0];
 
     for (int i = 0; i < headers.length; i++) {
       final cell = sheet.cell(
@@ -375,17 +404,18 @@ class _PersonnelScreenState extends State<PersonnelScreen> {
       setCell(0, xls.TextCellValue('${i + 1}'));
       setCell(1, xls.TextCellValue(p.name));
       setCell(2, xls.TextCellValue(p.isWorking ? 'Đang làm việc' : 'Đã nghỉ việc'));
-      setCell(3, xls.TextCellValue(_formatCurrency(p.basicSalary)));
+      setCell(3, xls.TextCellValue(p.role == 'TX' ? 'Tài xế' : (p.role == 'PX' ? 'Phụ xe' : '')));
+      setCell(4, xls.TextCellValue(p.cccd ?? ''));
       setCell(
-          4,
+          5,
           xls.TextCellValue(
               p.startDate != null ? _formatDate(p.startDate!) : ''));
-      setCell(5, xls.TextCellValue(p.driverLicense ?? ''));
+      setCell(6, xls.TextCellValue(p.driverLicense ?? ''));
       setCell(
-          6,
+          7,
           xls.TextCellValue(
               p.deposit != null ? _formatCurrency(p.deposit!) : ''));
-      setCell(7, xls.TextCellValue(_formatDate(p.createdAt)));
+      setCell(8, xls.TextCellValue(_formatDate(p.createdAt)));
     }
 
     final outputPath = await FilePicker.platform.saveFile(
@@ -554,31 +584,58 @@ class _PersonnelScreenState extends State<PersonnelScreen> {
                                     ),
                                 ],
                               ),
-                              subtitle: Column(
+                                  subtitle: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Text(
-                                    'Lương cơ bản: ${_formatCurrency(p.basicSalary)} VNĐ',
-                                    style: TextStyle(
-                                        color: isResigned
-                                            ? Colors.grey.shade400
-                                            : null),
-                                  ),
                                   Row(
                                     children: [
-                                      if (p.startDate != null) ...[
-                                        Icon(Icons.calendar_today,
-                                            size: 12,
-                                            color: Colors.grey.shade500),
-                                        const SizedBox(width: 3),
-                                        Text(
-                                          'Vào làm: ${_formatDate(p.startDate!)}',
-                                          style: TextStyle(
-                                            fontSize: 12,
-                                            color: Colors.grey.shade600,
+                                      if (p.role != null && p.role!.isNotEmpty)
+                                        Container(
+                                          margin: const EdgeInsets.only(bottom: 4, right: 8),
+                                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                          decoration: BoxDecoration(
+                                            color: Colors.blue.withOpacity(0.1),
+                                            borderRadius: BorderRadius.circular(4),
+                                            border: Border.all(color: Colors.blue.shade200),
+                                          ),
+                                          child: Text(
+                                            p.role == 'TX' ? 'Tài xế' : 'Phụ xe',
+                                            style: TextStyle(
+                                              fontSize: 12,
+                                              fontWeight: FontWeight.bold,
+                                              color: Colors.blue.shade700,
+                                            ),
                                           ),
                                         ),
-                                        const SizedBox(width: 10),
+                                      if (p.cccd != null && p.cccd!.isNotEmpty)
+                                        Padding(
+                                          padding: const EdgeInsets.only(bottom: 4),
+                                          child: Text(
+                                            'CCCD: ${p.cccd}',
+                                            style: TextStyle(
+                                                fontSize: 13,
+                                                color: isResigned
+                                                    ? Colors.grey.shade400
+                                                    : Colors.blueGrey),
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                                    Row(
+                                      children: [
+                                        if (p.startDate != null) ...[
+                                          Icon(Icons.calendar_today,
+                                              size: 12,
+                                              color: Colors.grey.shade500),
+                                          const SizedBox(width: 3),
+                                          Text(
+                                            'Vào làm: ${_formatDate(p.startDate!)}',
+                                            style: TextStyle(
+                                              fontSize: 12,
+                                              color: Colors.grey.shade600,
+                                            ),
+                                          ),
+                                          const SizedBox(width: 10),
                                       ],
                                       if (p.driverLicense != null &&
                                           p.driverLicense!.isNotEmpty) ...[

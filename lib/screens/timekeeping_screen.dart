@@ -1,31 +1,9 @@
 import 'package:flutter/material.dart';
 import '../database/database_helper.dart';
 import '../models/personnel.dart';
-import '../models/job_position.dart';
 import '../models/transaction_point.dart';
 import '../models/timekeeping.dart';
 import '../state/app_state.dart';
-
-/// Per-day status for a row: null = not set (absent), or DayStatus value
-class TimekeepingRow {
-  int personnelId;
-  int jobPositionId;
-  int transactionPointId;
-  /// day number (1-31) → status string ('work', 'phep', 'kphep')
-  Map<int, String> dayStatus;
-
-  TimekeepingRow({
-    required this.personnelId,
-    required this.jobPositionId,
-    required this.transactionPointId,
-    required this.dayStatus,
-  });
-
-  String get key => '${personnelId}_${jobPositionId}_${transactionPointId}';
-
-  /// Backward compat: days that have any status (non-absent)
-  Set<int> get daysActive => dayStatus.keys.toSet();
-}
 
 class TimekeepingScreen extends StatefulWidget {
   const TimekeepingScreen({super.key});
@@ -41,10 +19,12 @@ class _TimekeepingScreenState extends State<TimekeepingScreen> {
   int _selectedYear = DateTime.now().year;
 
   List<Personnel> _personnelList = [];
-  List<JobPosition> _jobPositions = [];
   List<TransactionPoint> _transactionPoints = [];
 
-  List<TimekeepingRow> _rows = [];
+  // Mapping: PersonnelId -> TransactionPointId -> Day -> Status
+  Map<int, Map<int, Map<int, String>>> _dataMap = {};
+  
+  int? _selectedFilterTpId; // New filter state
 
   bool _isLoading = true;
 
@@ -58,25 +38,19 @@ class _TimekeepingScreenState extends State<TimekeepingScreen> {
   @override
   void dispose() {
     AppState.instance.dataVersion.removeListener(_onDataChanged);
-    _horizontalScrollController.dispose();
-    _verticalScrollController.dispose();
     super.dispose();
   }
 
   void _onDataChanged() {
-    // Reload personnel/positions/points lists when other screens add data
     _loadMasterData();
   }
 
   Future<void> _loadMasterData() async {
-    // Only load actively working personnel for timekeeping dropdowns
     final personnel = await _db.getAllPersonnel(activeOnly: true, workingOnly: true);
-    final jobs = await _db.getAllJobPositions();
     final points = await _db.getAllTransactionPoints();
     if (mounted) {
       setState(() {
         _personnelList = personnel;
-        _jobPositions = jobs;
         _transactionPoints = points;
       });
     }
@@ -85,9 +59,7 @@ class _TimekeepingScreenState extends State<TimekeepingScreen> {
   Future<void> _loadData() async {
     setState(() => _isLoading = true);
 
-    // Only actively working personnel appear in timekeeping dropdowns
     _personnelList = await _db.getAllPersonnel(activeOnly: true, workingOnly: true);
-    _jobPositions = await _db.getAllJobPositions();
     _transactionPoints = await _db.getAllTransactionPoints();
 
     await _loadTimekeepingData();
@@ -101,26 +73,19 @@ class _TimekeepingScreenState extends State<TimekeepingScreen> {
       month: _selectedMonth,
     );
 
-    Map<String, TimekeepingRow> rowMap = {};
-    for (var tk in timekeepings) {
-      String key =
-          '${tk.personnelId}_${tk.jobPositionId}_${tk.transactionPointId}';
-      if (!rowMap.containsKey(key)) {
-        rowMap[key] = TimekeepingRow(
-          personnelId: tk.personnelId,
-          jobPositionId: tk.jobPositionId,
-          transactionPointId: tk.transactionPointId,
-          dayStatus: {},
-        );
-      }
-      rowMap[key]!.dayStatus[tk.date.day] = tk.dayStatus;
-    }
+    _dataMap.clear();
 
-    _rows = rowMap.values.toList();
+    for (var tk in timekeepings) {
+      _dataMap.putIfAbsent(tk.personnelId, () => {});
+      _dataMap[tk.personnelId]!.putIfAbsent(tk.transactionPointId, () => {});
+      _dataMap[tk.personnelId]![tk.transactionPointId]![tk.date.day] = tk.dayStatus;
+    }
   }
 
   Future<void> _saveData() async {
     setState(() => _isLoading = true);
+    // Add artificial delay to give user feedback of major save operation
+    await Future.delayed(const Duration(milliseconds: 500));
     try {
       await _db.deleteTimekeepingByMonth(
         year: _selectedYear,
@@ -128,18 +93,19 @@ class _TimekeepingScreenState extends State<TimekeepingScreen> {
       );
 
       List<Timekeeping> newRecords = [];
-      for (var row in _rows) {
-        for (var entry in row.dayStatus.entries) {
-          newRecords.add(Timekeeping(
-            personnelId: row.personnelId,
-            date: DateTime(_selectedYear, _selectedMonth, entry.key),
-            jobPositionId: row.jobPositionId,
-            transactionPointId: row.transactionPointId,
-            createdAt: DateTime.now(),
-            dayStatus: entry.value,
-          ));
-        }
-      }
+      _dataMap.forEach((personnelId, tpMap) {
+        tpMap.forEach((tpId, daysMap) {
+          daysMap.forEach((day, status) {
+            newRecords.add(Timekeeping(
+              personnelId: personnelId,
+              date: DateTime(_selectedYear, _selectedMonth, day),
+              transactionPointId: tpId,
+              createdAt: DateTime.now(),
+              dayStatus: status,
+            ));
+          });
+        });
+      });
 
       if (newRecords.isNotEmpty) {
         await _db.insertMultipleTimekeeping(newRecords);
@@ -167,145 +133,33 @@ class _TimekeepingScreenState extends State<TimekeepingScreen> {
     }
   }
 
-  void _showAddRowDialog() {
-    Personnel? selectedPersonnel;
-    JobPosition? selectedPosition;
-    TransactionPoint? selectedPoint;
-
-    showDialog(
-      context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          title: const Text('Thêm dòng chấm công'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              DropdownButtonFormField<Personnel>(
-                decoration: const InputDecoration(
-                  labelText: 'Nhân sự',
-                  border: OutlineInputBorder(),
-                ),
-                value: selectedPersonnel,
-                items: _personnelList.map((p) {
-                  return DropdownMenuItem(value: p, child: Text(p.name));
-                }).toList(),
-                onChanged: (value) =>
-                    setDialogState(() => selectedPersonnel = value),
-              ),
-              const SizedBox(height: 16),
-              DropdownButtonFormField<JobPosition>(
-                decoration: const InputDecoration(
-                  labelText: 'Vị trí công việc',
-                  border: OutlineInputBorder(),
-                ),
-                value: selectedPosition,
-                items: _jobPositions.map((jp) {
-                  return DropdownMenuItem(value: jp, child: Text(jp.name));
-                }).toList(),
-                onChanged: (value) =>
-                    setDialogState(() => selectedPosition = value),
-              ),
-              const SizedBox(height: 16),
-              DropdownButtonFormField<TransactionPoint>(
-                decoration: const InputDecoration(
-                  labelText: 'Điểm giao dịch',
-                  border: OutlineInputBorder(),
-                ),
-                value: selectedPoint,
-                items: _transactionPoints.map((tp) {
-                  return DropdownMenuItem(value: tp, child: Text(tp.name));
-                }).toList(),
-                onChanged: (value) =>
-                    setDialogState(() => selectedPoint = value),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Hủy'),
-            ),
-            ElevatedButton(
-              onPressed: (selectedPersonnel == null ||
-                      selectedPosition == null ||
-                      selectedPoint == null)
-                  ? null
-                  : () {
-                      final key =
-                          '${selectedPersonnel!.id}_${selectedPosition!.id}_${selectedPoint!.id}';
-                      if (!_rows.any((r) => r.key == key)) {
-                        setState(() {
-                          _rows.add(TimekeepingRow(
-                            personnelId: selectedPersonnel!.id!,
-                            jobPositionId: selectedPosition!.id!,
-                            transactionPointId: selectedPoint!.id!,
-                            dayStatus: {},
-                          ));
-                        });
-                      }
-                      Navigator.pop(context);
-                    },
-              child: const Text('Thêm'),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  String _getPersonnelName(int id) {
-    return _personnelList
-        .firstWhere(
-          (p) => p.id == id,
-          orElse: () =>
-              Personnel(name: 'N/A', basicSalary: 0, createdAt: DateTime.now()),
-        )
-        .name;
-  }
-
-  String _getJobPositionName(int id) {
-    return _jobPositions
-        .firstWhere(
-          (j) => j.id == id,
-          orElse: () =>
-              JobPosition(name: 'N/A', salary: 0, createdAt: DateTime.now()),
-        )
-        .name;
-  }
-
-  String _getTransactionPointName(int id) {
-    return _transactionPoints
-        .firstWhere(
-          (t) => t.id == id,
-          orElse: () =>
-              TransactionPoint(name: 'N/A', createdAt: DateTime.now()),
-        )
-        .name;
-  }
-
-  /// Cycle: null → work → phep → kphep → null
-  void _cycleStatus(TimekeepingRow row, int day) {
+  /// Cycle: (empty) → TX → PX → NP → KP → (empty)
+  void _cycleStatus(int pId, int tpId, int day) {
     setState(() {
-      final current = row.dayStatus[day];
+      _dataMap.putIfAbsent(pId, () => {});
+      _dataMap[pId]!.putIfAbsent(tpId, () => {});
+
+      final current = _dataMap[pId]![tpId]![day];
       if (current == null) {
-        row.dayStatus[day] = DayStatus.work;
-      } else if (current == DayStatus.work) {
-        row.dayStatus[day] = DayStatus.phep;
-      } else if (current == DayStatus.phep) {
-        row.dayStatus[day] = DayStatus.kphep;
+        _dataMap[pId]![tpId]![day] = DayStatus.tx;
+      } else if (current == DayStatus.tx) {
+        _dataMap[pId]![tpId]![day] = DayStatus.px;
+      } else if (current == DayStatus.px) {
+        _dataMap[pId]![tpId]![day] = DayStatus.np;
+      } else if (current == DayStatus.np) {
+        _dataMap[pId]![tpId]![day] = DayStatus.kp;
       } else {
-        row.dayStatus.remove(day);
+        _dataMap[pId]![tpId]!.remove(day);
       }
     });
   }
 
-  Widget _buildDayCell(TimekeepingRow row, int day) {
-    final status = row.dayStatus[day];
+  Widget _buildDayCell(int pId, int tpId, int day) {
+    final status = _dataMap[pId]?[tpId]?[day];
 
     if (status == null) {
-      // Empty — click to start cycling
       return InkWell(
-        onTap: () => _cycleStatus(row, day),
+        onTap: () => _cycleStatus(pId, tpId, day),
         borderRadius: BorderRadius.circular(4),
         child: const SizedBox(width: 36, height: 32),
       );
@@ -314,37 +168,44 @@ class _TimekeepingScreenState extends State<TimekeepingScreen> {
     Color bgColor;
     Color textColor;
     String label;
+    String tooltip;
 
     switch (status) {
-      case DayStatus.work:
-        bgColor = Colors.green.shade100;
-        textColor = Colors.green.shade800;
-        label = '✓';
-        break;
-      case DayStatus.phep:
+      case DayStatus.tx:
         bgColor = Colors.blue.shade100;
         textColor = Colors.blue.shade800;
-        label = 'P';
+        label = 'TX';
+        tooltip = 'Tài xế';
         break;
-      case DayStatus.kphep:
+      case DayStatus.px:
+        bgColor = Colors.cyan.shade100;
+        textColor = Colors.cyan.shade900;
+        label = 'PX';
+        tooltip = 'Phụ xe';
+        break;
+      case DayStatus.np:
         bgColor = Colors.orange.shade100;
         textColor = Colors.orange.shade900;
-        label = 'K';
+        label = 'NP';
+        tooltip = 'Nghỉ phép';
+        break;
+      case DayStatus.kp:
+        bgColor = Colors.red.shade100;
+        textColor = Colors.red.shade900;
+        label = 'KP';
+        tooltip = 'Kh.Phép';
         break;
       default:
-        bgColor = Colors.green.shade100;
-        textColor = Colors.green.shade800;
-        label = '✓';
+        bgColor = Colors.blue.shade100;
+        textColor = Colors.blue.shade800;
+        label = 'TX';
+        tooltip = 'Tài xế';
     }
 
     return Tooltip(
-      message: status == DayStatus.work
-          ? 'Đi làm'
-          : status == DayStatus.phep
-              ? 'Nghỉ phép'
-              : 'Nghỉ không phép',
+      message: tooltip,
       child: InkWell(
-        onTap: () => _cycleStatus(row, day),
+        onTap: () => _cycleStatus(pId, tpId, day),
         borderRadius: BorderRadius.circular(4),
         child: Container(
           width: 36,
@@ -366,9 +227,6 @@ class _TimekeepingScreenState extends State<TimekeepingScreen> {
       ),
     );
   }
-
-  final ScrollController _horizontalScrollController = ScrollController();
-  final ScrollController _verticalScrollController = ScrollController();
 
   @override
   Widget build(BuildContext context) {
@@ -419,44 +277,65 @@ class _TimekeepingScreenState extends State<TimekeepingScreen> {
                   },
                 ),
                 const SizedBox(width: 16),
-                // Legend
-                _StatusBadge(
-                  color: Colors.green.shade100,
-                  textColor: Colors.green.shade800,
-                  label: '✓',
-                  tooltip: 'Đi làm',
+                DropdownButton<int?>(
+                  value: _selectedFilterTpId,
+                  hint: const Text('Lọc theo điểm GD'),
+                  items: [
+                    const DropdownMenuItem<int?>(
+                      value: null,
+                      child: Text('Tất cả Điểm GD'),
+                    ),
+                    ..._transactionPoints.map((tp) => DropdownMenuItem<int?>(
+                          value: tp.id,
+                          child: Text(tp.name),
+                        )),
+                  ],
+                  onChanged: (value) {
+                    setState(() {
+                      _selectedFilterTpId = value;
+                    });
+                  },
                 ),
-                const SizedBox(width: 4),
+                const SizedBox(width: 16),
+                // Legend
                 _StatusBadge(
                   color: Colors.blue.shade100,
                   textColor: Colors.blue.shade800,
-                  label: 'P',
-                  tooltip: 'Nghỉ Phép',
+                  label: 'TX',
+                  tooltip: 'Tài xế',
+                ),
+                const SizedBox(width: 4),
+                _StatusBadge(
+                  color: Colors.cyan.shade100,
+                  textColor: Colors.cyan.shade900,
+                  label: 'PX',
+                  tooltip: 'Phụ xe',
                 ),
                 const SizedBox(width: 4),
                 _StatusBadge(
                   color: Colors.orange.shade100,
                   textColor: Colors.orange.shade900,
-                  label: 'K',
-                  tooltip: 'Nghỉ K Phép',
+                  label: 'NP',
+                  tooltip: 'Nghỉ Phép',
+                ),
+                const SizedBox(width: 4),
+                _StatusBadge(
+                  color: Colors.red.shade100,
+                  textColor: Colors.red.shade900,
+                  label: 'KP',
+                  tooltip: 'Nghỉ Không Phép',
                 ),
                 const SizedBox(width: 8),
-                Text('← Click để chuyển trạng thái',
+                Text('← Click để đổi trạng thái',
                     style: TextStyle(fontSize: 12, color: Colors.grey[600])),
                 const Spacer(),
-                ElevatedButton.icon(
-                  onPressed: _showAddRowDialog,
-                  icon: const Icon(Icons.add),
-                  label: const Text('Thêm dòng'),
-                ),
-                const SizedBox(width: 16),
                 ElevatedButton.icon(
                   onPressed: _saveData,
                   icon: const Icon(Icons.save),
                   style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.green,
                       foregroundColor: Colors.white),
-                  label: const Text('Lưu lại'),
+                  label: const Text('Lưu toàn bộ'),
                 ),
               ],
             ),
@@ -464,131 +343,122 @@ class _TimekeepingScreenState extends State<TimekeepingScreen> {
           Expanded(
             child: _isLoading
                 ? const Center(child: CircularProgressIndicator())
-                : _rows.isEmpty
+                : _personnelList.isEmpty
                     ? Center(
                         child: Text(
-                          'Chưa có dữ liệu chấm công. Hãy thêm dòng mới.',
+                          'Chưa có nhân sự nào đang làm việc.',
                           style: TextStyle(
                               fontSize: 18, color: Colors.grey[600]),
                         ),
                       )
-                    : Scrollbar(
-                        controller: _horizontalScrollController,
-                        thumbVisibility: true,
-                        child: SingleChildScrollView(
-                          controller: _horizontalScrollController,
-                          scrollDirection: Axis.horizontal,
-                          child: SingleChildScrollView(
-                            controller: _verticalScrollController,
-                            child: DataTable(
-                              border: TableBorder.all(
-                                  color: Colors.grey.shade300),
-                              columnSpacing: 8,
-                              dataRowMinHeight: 40,
-                              dataRowMaxHeight: 48,
-                              headingRowHeight: 40,
-                              headingRowColor: MaterialStateProperty.all(
-                                  Colors.blue[50]),
-                              columns: [
-                                const DataColumn(
-                                    label: Text('Nhân sự',
-                                        style: TextStyle(
-                                            fontWeight: FontWeight.bold))),
-                                const DataColumn(
-                                    label: Text('Vị trí',
-                                        style: TextStyle(
-                                            fontWeight: FontWeight.bold))),
-                                const DataColumn(
-                                    label: Text('Điểm GD',
-                                        style: TextStyle(
-                                            fontWeight: FontWeight.bold))),
-                                ...List.generate(daysInMonth, (index) {
-                                  final day = index + 1;
-                                  final date = DateTime(
-                                      _selectedYear, _selectedMonth, day);
-                                  final isWeekend =
-                                      date.weekday == DateTime.sunday;
-                                  return DataColumn(
-                                    label: Text(
-                                      '$day',
-                                      style: TextStyle(
-                                        fontWeight: FontWeight.bold,
-                                        color:
-                                            isWeekend ? Colors.red : null,
+                    : ListView.builder(
+                        itemCount: () {
+                          if (_selectedFilterTpId == null) return _personnelList.length;
+                          return _personnelList.where((p) {
+                            final tpMap = _dataMap[p.id];
+                            return tpMap != null && tpMap.containsKey(_selectedFilterTpId!);
+                          }).length;
+                        }(),
+                        itemBuilder: (context, index) {
+                          final filtered = _selectedFilterTpId == null
+                              ? _personnelList
+                              : _personnelList.where((p) {
+                                  final tpMap = _dataMap[p.id];
+                                  return tpMap != null && tpMap.containsKey(_selectedFilterTpId!);
+                                }).toList();
+                          final personnel = filtered[index];
+                          // Calculate if there's any active data to optionally expand automatically or show subtitle
+                          int totalDays = 0;
+                          _dataMap[personnel.id!]?.forEach((_, map) {
+                            totalDays += map.length;
+                          });
+
+                          return Card(
+                            margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                            child: ExpansionTile(
+                              title: Text(
+                                personnel.name,
+                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                              ),
+                              subtitle: RichText(
+                                text: TextSpan(
+                                  children: [
+                                    TextSpan(
+                                      text: personnel.role == 'TX' ? 'Tài xế' : (personnel.role == 'PX' ? 'Phụ xe' : 'Chưa gán vai trò'),
+                                      style: TextStyle(color: Colors.grey[700], fontSize: 13),
+                                    ),
+                                    TextSpan(
+                                      text: '  •  $totalDays ngày công đã ghi',
+                                      style: TextStyle(color: Colors.blue[600], fontSize: 13, fontWeight: FontWeight.bold),
+                                    ),
+                                  ]
+                                )
+                              ),
+                              children: [
+                                if (_transactionPoints.isEmpty)
+                                  const Padding(
+                                    padding: EdgeInsets.all(16.0),
+                                    child: Text('Chưa có điểm giao dịch nào.'),
+                                  )
+                                else
+                                  Padding(
+                                    padding: const EdgeInsets.only(bottom: 16.0),
+                                    child: SingleChildScrollView(
+                                      scrollDirection: Axis.horizontal,
+                                      child: DataTable(
+                                        border: TableBorder.all(color: Colors.grey.shade300),
+                                        columnSpacing: 8,
+                                        dataRowMinHeight: 40,
+                                        dataRowMaxHeight: 48,
+                                        headingRowHeight: 40,
+                                        headingRowColor: WidgetStateProperty.all(Colors.blue[50]),
+                                        columns: [
+                                          const DataColumn(
+                                              label: Text('Điểm GD',
+                                                  style: TextStyle(fontWeight: FontWeight.bold))),
+                                          ...List.generate(daysInMonth, (dIndex) {
+                                            final day = dIndex + 1;
+                                            final date = DateTime(_selectedYear, _selectedMonth, day);
+                                            final isWeekend = date.weekday == DateTime.sunday;
+                                            return DataColumn(
+                                              label: Text(
+                                                '$day',
+                                                style: TextStyle(
+                                                  fontWeight: FontWeight.bold,
+                                                  color: isWeekend ? Colors.red : null,
+                                                ),
+                                              ),
+                                            );
+                                          }),
+                                        ],
+                                        rows: _transactionPoints.map((tp) {
+                                          return DataRow(
+                                            cells: [
+                                              DataCell(
+                                                Container(
+                                                  width: 120, // fixed width for transaction point name
+                                                  child: Text(tp.name, 
+                                                    overflow: TextOverflow.ellipsis,
+                                                    style: const TextStyle(fontWeight: FontWeight.w500)
+                                                  )
+                                                )
+                                              ),
+                                              ...List.generate(daysInMonth, (dIndex) {
+                                                final day = dIndex + 1;
+                                                return DataCell(
+                                                  _buildDayCell(personnel.id!, tp.id!, day)
+                                                );
+                                              }),
+                                            ],
+                                          );
+                                        }).toList(),
                                       ),
                                     ),
-                                  );
-                                }),
-                                const DataColumn(
-                                    label: Text('Thao tác',
-                                        style: TextStyle(
-                                            fontWeight: FontWeight.bold))),
+                                  ),
                               ],
-                              rows: _rows.map((row) {
-                                final pName = _getPersonnelName(row.personnelId);
-                                return DataRow(
-                                  cells: [
-                                    DataCell(Text(
-                                        pName)),
-                                    DataCell(
-                                      DropdownButton<int>(
-                                        value: row.jobPositionId,
-                                        underline: const SizedBox(),
-                                        items: _jobPositions.map((jp) {
-                                          return DropdownMenuItem(
-                                              value: jp.id,
-                                              child: Text(jp.name));
-                                        }).toList(),
-                                        onChanged: (val) {
-                                          if (val != null) {
-                                            setState(
-                                                () => row.jobPositionId = val);
-                                          }
-                                        },
-                                      ),
-                                    ),
-                                    DataCell(
-                                      DropdownButton<int>(
-                                        value: row.transactionPointId,
-                                        underline: const SizedBox(),
-                                        items: _transactionPoints.map((tp) {
-                                          return DropdownMenuItem(
-                                              value: tp.id,
-                                              child: Text(tp.name));
-                                        }).toList(),
-                                        onChanged: (val) {
-                                          if (val != null) {
-                                            setState(() =>
-                                                row.transactionPointId = val);
-                                          }
-                                        },
-                                      ),
-                                    ),
-                                    ...List.generate(daysInMonth, (index) {
-                                      final day = index + 1;
-                                      return DataCell(
-                                          _buildDayCell(row, day));
-                                    }),
-                                    DataCell(
-                                      MouseRegion(
-                                        cursor: SystemMouseCursors.click,
-                                        child: IconButton(
-                                          icon: const Icon(Icons.delete,
-                                              color: Colors.red),
-                                          onPressed: () {
-                                            setState(() {
-                                              _rows.remove(row);
-                                            });
-                                          },
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                );
-                              }).toList(),
                             ),
-                          ),
-                        ),
+                          );
+                        },
                       ),
           ),
         ],
@@ -615,7 +485,7 @@ class _StatusBadge extends StatelessWidget {
     return Tooltip(
       message: tooltip,
       child: Container(
-        width: 28,
+        width: 32,
         height: 24,
         decoration: BoxDecoration(
           color: color,
