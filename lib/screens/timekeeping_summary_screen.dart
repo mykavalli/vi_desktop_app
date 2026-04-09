@@ -34,6 +34,7 @@ class _TimekeepingSummaryScreenState extends State<TimekeepingSummaryScreen> {
   final TextEditingController _searchController = TextEditingController();
 
   final ScrollController _horizontalScrollController = ScrollController();
+  final ScrollController _verticalScrollController = ScrollController();
 
   @override
   void initState() {
@@ -46,6 +47,7 @@ class _TimekeepingSummaryScreenState extends State<TimekeepingSummaryScreen> {
   void dispose() {
     AppState.instance.dataVersion.removeListener(_onDataChanged);
     _horizontalScrollController.dispose();
+    _verticalScrollController.dispose();
     _searchController.dispose();
     super.dispose();
   }
@@ -406,181 +408,196 @@ class _TimekeepingSummaryScreenState extends State<TimekeepingSummaryScreen> {
                         ),
                       )
                     : Scrollbar(
-                        controller: _horizontalScrollController,
+                        controller: _verticalScrollController,
                         thumbVisibility: true,
+                        notificationPredicate: (n) => n.depth == 1,
                         child: SingleChildScrollView(
-                          controller: _horizontalScrollController,
-                          scrollDirection: Axis.horizontal,
-                          child: SingleChildScrollView(
-                            child: Padding(
-                              padding: const EdgeInsets.all(16.0),
-                              child: DataTable(
-                                border: TableBorder.all(
-                                    color: Colors.grey.shade300),
-                                headingRowColor: WidgetStateProperty.all(
-                                    Colors.blue[50]),
-                                dataRowMinHeight: 40,
-                                dataRowMaxHeight: 48,
-                                columns: [
-                                  const DataColumn(
-                                      label: Text('Nhân sự',
-                                          style: TextStyle(
-                                              fontWeight: FontWeight.bold))),
-                                  const DataColumn(
-                                      label: Text('Vai trò',
-                                          style: TextStyle(
-                                              fontWeight: FontWeight.bold))),
-                                  ..._transactionPoints.map((tp) => DataColumn(
-                                      label: Text('TX\n${tp.name}',
-                                          textAlign: TextAlign.center,
-                                          style: const TextStyle(
-                                              fontWeight: FontWeight.bold)))),
-                                  const DataColumn(
-                                      label: Text('Tổng PX',
-                                          style: TextStyle(
-                                              fontWeight: FontWeight.bold,
-                                              color: Colors.blueGrey))),
-                                  const DataColumn(
-                                      label: Text('Tổng\nngày làm',
-                                          textAlign: TextAlign.center,
-                                          style: TextStyle(
-                                              fontWeight: FontWeight.bold,
-                                              color: Colors.blue))),
-                                  const DataColumn(
-                                      label: Text('Tổng\nnghỉ',
-                                          textAlign: TextAlign.center,
-                                          style: TextStyle(
-                                              fontWeight: FontWeight.bold,
-                                              color: Colors.deepOrange))),
-                                  const DataColumn(
-                                      label: Text('N.Phép',
-                                          style: TextStyle(
-                                              fontWeight: FontWeight.bold,
-                                              color: Colors.orange))),
-                                  const DataColumn(
-                                      label: Text('K.Phép',
-                                          style: TextStyle(
-                                              fontWeight: FontWeight.bold,
-                                              color: Colors.red))),
-                                ],
-                                rows: [
-                                  ...filtered.map((summary) {
-                                    final cells = <DataCell>[];
-                                    // 1. Tên
-                                    cells.add(DataCell(Text(
-                                      summary.personnelName,
-                                      style: TextStyle(
-                                        color: summary.isWorking
-                                            ? Colors.black87
-                                            : Colors.grey,
-                                      ),
-                                    )));
-                                    
-                                    // 2. Vai trò
-                                    String roleStr = summary.personnelRole == 'TX' ? 'Tài xế' : (summary.personnelRole == 'PX' ? 'Phụ xe' : '');
-                                    cells.add(DataCell(Text(roleStr)));
-
-                                    // 3. Các cột TX theo điểm giao dịch
-                                    for (var tp in _transactionPoints) {
-                                      final days =
-                                          summary.txDaysByTransactionPoint[tp.name] ??
-                                              0;
+                          controller: _verticalScrollController,
+                          scrollDirection: Axis.vertical,
+                          child: Scrollbar(
+                            controller: _horizontalScrollController,
+                            thumbVisibility: true,
+                            child: SingleChildScrollView(
+                              controller: _horizontalScrollController,
+                              scrollDirection: Axis.horizontal,
+                              child: Padding(
+                                padding: const EdgeInsets.all(16.0),
+                                child: DataTable(
+                                  border: TableBorder.all(
+                                      color: Colors.grey.shade300),
+                                  headingRowColor: WidgetStateProperty.all(
+                                      Colors.blue[50]),
+                                  dataRowMinHeight: 40,
+                                  dataRowMaxHeight: 48,
+                                  columns: [
+                                    const DataColumn(
+                                        label: Text('Nhân sự',
+                                            style: TextStyle(
+                                                fontWeight: FontWeight.bold))),
+                                    const DataColumn(
+                                        label: Text('Vai trò',
+                                            style: TextStyle(
+                                                fontWeight: FontWeight.bold))),
+                                    ..._transactionPoints.map((tp) => DataColumn(
+                                        label: Text('TX\n${tp.name}',
+                                            textAlign: TextAlign.center,
+                                            style: const TextStyle(
+                                                fontWeight: FontWeight.bold)))),
+                                    const DataColumn(
+                                        label: Text('Tổng PX',
+                                            style: TextStyle(
+                                                fontWeight: FontWeight.bold,
+                                                color: Colors.blueGrey))),
+                                    const DataColumn(
+                                        label: Text('Tổng\nngày làm',
+                                            textAlign: TextAlign.center,
+                                            style: TextStyle(
+                                                fontWeight: FontWeight.bold,
+                                                color: Colors.blue))),
+                                    const DataColumn(
+                                        label: Text('Tổng\nnghỉ',
+                                            textAlign: TextAlign.center,
+                                            style: TextStyle(
+                                                fontWeight: FontWeight.bold,
+                                                color: Colors.deepOrange))),
+                                    const DataColumn(
+                                        label: Text('N.Phép',
+                                            style: TextStyle(
+                                                fontWeight: FontWeight.bold,
+                                                color: Colors.orange))),
+                                    const DataColumn(
+                                        label: Text('K.Phép',
+                                            style: TextStyle(
+                                                fontWeight: FontWeight.bold,
+                                                color: Colors.red))),
+                                  ],
+                                  rows: [
+                                    ...filtered.map((summary) {
+                                      final cells = <DataCell>[];
+                                      // 1. Tên
                                       cells.add(DataCell(Text(
-                                          days > 0 ? days.toString() : '-')));
-                                    }
-
-                                    // 4. Tổng PX
-                                    cells.add(DataCell(Text(
-                                        summary.totalPxDays > 0 ? summary.totalPxDays.toString() : '-',
-                                        style: const TextStyle(fontWeight: FontWeight.bold))));
-                                        
-                                    // 5. Tổng ngày làm (TX+PX)
-                                    cells.add(DataCell(Text(
-                                        summary.totalWorkingDays > 0 ? summary.totalWorkingDays.toString() : '-',
-                                        style: const TextStyle(
-                                            fontWeight: FontWeight.bold,
-                                            color: Colors.blue))));
-
-                                    // 6. Nghỉ phép
-                                    cells.add(DataCell(Text(
-                                      summary.totalDaysOff > 0
-                                          ? summary.totalDaysOff.toString()
-                                          : '-',
-                                      style: TextStyle(
-                                          color: summary.totalDaysOff > 0
-                                              ? Colors.orange.shade800
-                                              : Colors.grey),
-                                    )));
-
-                                    // 7. Không phép
-                                    cells.add(DataCell(Text(
-                                      summary.totalDaysUnauth > 0
-                                          ? summary.totalDaysUnauth.toString()
-                                          : '-',
-                                      style: TextStyle(
-                                          color: summary.totalDaysUnauth > 0
-                                              ? Colors.red.shade800
-                                              : Colors.grey),
-                                    )));
-
-                                    return DataRow(cells: cells);
-                                  }),
-
-                                  // Tổng cộng Row
-                                  DataRow(
-                                    color: WidgetStateProperty.all(
-                                        Colors.green.shade50),
-                                    cells: [
-                                      const DataCell(Text(
-                                        'TỔNG CỘNG',
+                                        summary.personnelName,
                                         style: TextStyle(
-                                            fontWeight: FontWeight.bold,
-                                            color: Colors.green),
-                                      )),
-                                      const DataCell(Text('')), // Cột vai trò
-                                      ..._transactionPoints.map((tp) {
-                                        final totalForTp =
-                                            grandTotalTxTpDays[tp.name] ?? 0;
-                                        return DataCell(Text(
-                                          totalForTp > 0
-                                              ? totalForTp.toString()
+                                          color: summary.isWorking
+                                              ? Colors.black87
+                                              : Colors.grey,
+                                        ),
+                                      )));
+
+                                      // 2. Vai trò
+                                      String roleStr = summary.personnelRole == 'TX' ? 'Tài xế' : (summary.personnelRole == 'PX' ? 'Phụ xe' : '');
+                                      cells.add(DataCell(Text(roleStr)));
+
+                                      // 3. Các cột TX theo điểm giao dịch
+                                      for (var tp in _transactionPoints) {
+                                        final days = summary.txDaysByTransactionPoint[tp.name] ?? 0;
+                                        cells.add(DataCell(Text(days > 0 ? days.toString() : '-')));
+                                      }
+
+                                      // 4. Tổng PX
+                                      cells.add(DataCell(Text(
+                                          summary.totalPxDays > 0 ? summary.totalPxDays.toString() : '-',
+                                          style: const TextStyle(fontWeight: FontWeight.bold))));
+
+                                      // 5. Tổng ngày làm (TX+PX)
+                                      cells.add(DataCell(Text(
+                                          summary.totalWorkingDays > 0 ? summary.totalWorkingDays.toString() : '-',
+                                          style: const TextStyle(
+                                              fontWeight: FontWeight.bold,
+                                              color: Colors.blue))));
+
+                                      // 6. Tổng nghỉ (có phép + không phép)
+                                      final totalOff = summary.totalDaysOff + summary.totalDaysUnauth;
+                                      cells.add(DataCell(Text(
+                                        totalOff > 0 ? totalOff.toString() : '-',
+                                        style: TextStyle(
+                                            color: totalOff > 0
+                                                ? Colors.deepOrange.shade800
+                                                : Colors.grey),
+                                      )));
+
+                                      // 7. Nghỉ phép
+                                      cells.add(DataCell(Text(
+                                        summary.totalDaysOff > 0
+                                            ? summary.totalDaysOff.toString()
+                                            : '-',
+                                        style: TextStyle(
+                                            color: summary.totalDaysOff > 0
+                                                ? Colors.orange.shade800
+                                                : Colors.grey),
+                                      )));
+
+                                      // 8. Không phép
+                                      cells.add(DataCell(Text(
+                                        summary.totalDaysUnauth > 0
+                                            ? summary.totalDaysUnauth.toString()
+                                            : '-',
+                                        style: TextStyle(
+                                            color: summary.totalDaysUnauth > 0
+                                                ? Colors.red.shade800
+                                                : Colors.grey),
+                                      )));
+
+                                      return DataRow(cells: cells);
+                                    }),
+
+                                    // Tổng cộng Row
+                                    DataRow(
+                                      color: WidgetStateProperty.all(
+                                          Colors.green.shade50),
+                                      cells: [
+                                        const DataCell(Text(
+                                          'TỔNG CỘNG',
+                                          style: TextStyle(
+                                              fontWeight: FontWeight.bold,
+                                              color: Colors.green),
+                                        )),
+                                        const DataCell(Text('')), // Cột vai trò
+                                        ..._transactionPoints.map((tp) {
+                                          final totalForTp = grandTotalTxTpDays[tp.name] ?? 0;
+                                          return DataCell(Text(
+                                            totalForTp > 0 ? totalForTp.toString() : '-',
+                                            style: const TextStyle(
+                                                fontWeight: FontWeight.bold,
+                                                color: Colors.green),
+                                          ));
+                                        }),
+                                        DataCell(Text(
+                                          grandTotalPxDays > 0 ? grandTotalPxDays.toString() : '-',
+                                          style: const TextStyle(
+                                              fontWeight: FontWeight.bold,
+                                              color: Colors.blueGrey),
+                                        )),
+                                        DataCell(Text(
+                                          grandTotalWorkingDays > 0 ? grandTotalWorkingDays.toString() : '-',
+                                          style: const TextStyle(
+                                              fontWeight: FontWeight.bold,
+                                              color: Colors.blue),
+                                        )),
+                                        DataCell(Text(
+                                          (grandTotalOff + grandTotalUnauth) > 0
+                                              ? (grandTotalOff + grandTotalUnauth).toString()
                                               : '-',
                                           style: const TextStyle(
                                               fontWeight: FontWeight.bold,
-                                              color: Colors.green),
-                                        ));
-                                      }),
-                                      DataCell(Text(
-                                        grandTotalPxDays > 0 ? grandTotalPxDays.toString() : '-',
-                                        style: const TextStyle(
-                                            fontWeight: FontWeight.bold,
-                                            color: Colors.green),
-                                      )),
-                                      DataCell(Text(
-                                        grandTotalWorkingDays > 0 ? grandTotalWorkingDays.toString() : '-',
-                                        style: const TextStyle(
-                                            fontWeight: FontWeight.bold,
-                                            color: Colors.blue),
-                                      )),
-                                      DataCell(Text(
-                                        grandTotalOff > 0
-                                            ? grandTotalOff.toString()
-                                            : '-',
-                                        style: const TextStyle(
-                                            fontWeight: FontWeight.bold,
-                                            color: Colors.green),
-                                      )),
-                                      DataCell(Text(
-                                        grandTotalUnauth > 0
-                                            ? grandTotalUnauth.toString()
-                                            : '-',
-                                        style: const TextStyle(
-                                            fontWeight: FontWeight.bold,
-                                            color: Colors.green),
-                                      )),
-                                    ],
-                                  ),
-                                ],
+                                              color: Colors.deepOrange),
+                                        )),
+                                        DataCell(Text(
+                                          grandTotalOff > 0 ? grandTotalOff.toString() : '-',
+                                          style: const TextStyle(
+                                              fontWeight: FontWeight.bold,
+                                              color: Colors.orange),
+                                        )),
+                                        DataCell(Text(
+                                          grandTotalUnauth > 0 ? grandTotalUnauth.toString() : '-',
+                                          style: const TextStyle(
+                                              fontWeight: FontWeight.bold,
+                                              color: Colors.red),
+                                        )),
+                                      ],
+                                    ),
+                                  ],
+                                ),
                               ),
                             ),
                           ),

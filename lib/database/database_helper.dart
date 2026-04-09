@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 import '../models/user.dart';
@@ -661,5 +662,52 @@ class DatabaseHelper {
   Future close() async {
     final db = await database;
     db.close();
+  }
+
+  /// Đóng database connection và xóa singleton để có thể mở lại sau restore
+  Future<void> closeAndReset() async {
+    if (_database != null) {
+      await _database!.close();
+      _database = null;
+    }
+  }
+
+  /// Lấy đường dẫn đầy đủ của file database hiện tại
+  Future<String> getDatabasePath() async {
+    final dbPath = await getDatabasesPath();
+    return join(dbPath, 'vi_desktop_app.db');
+  }
+
+  /// Restore database từ file backup:
+  /// 1. Đóng connection hiện tại
+  /// 2. Copy file backup vào vị trí DB
+  /// 3. Mở lại connection
+  /// Trả về true nếu thành công
+  Future<bool> restoreFromFile(String backupFilePath) async {
+    try {
+      await closeAndReset();
+
+      final targetPath = await getDatabasePath();
+      final backupFile = File(backupFilePath);
+
+      if (!await backupFile.exists()) {
+        throw Exception('File backup không tồn tại: $backupFilePath');
+      }
+
+      // Copy file backup vào vị trí database
+      await backupFile.copy(targetPath);
+
+      // Mở lại connection để verify
+      _database = await _initDB('vi_desktop_app.db');
+
+      return true;
+    } catch (e) {
+      print('Restore DB error: $e');
+      // Cố gắng mở lại DB cũ nếu restore thất bại
+      try {
+        _database = await _initDB('vi_desktop_app.db');
+      } catch (_) {}
+      return false;
+    }
   }
 }

@@ -1,6 +1,10 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:googleapis/drive/v3.dart' as drive_api;
 import '../services/auth_service.dart';
 import '../database/database_helper.dart';
+import '../services/google_drive_service.dart';
 
 class AccountScreen extends StatefulWidget {
   const AccountScreen({super.key});
@@ -12,7 +16,8 @@ class AccountScreen extends StatefulWidget {
 class _AccountScreenState extends State<AccountScreen> {
   final _authService = AuthService.instance;
   final _db = DatabaseHelper.instance;
-  
+  final _driveService = GoogleDriveService.instance;
+
   final _oldPasswordController = TextEditingController();
   final _newPasswordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
@@ -31,6 +36,7 @@ class _AccountScreenState extends State<AccountScreen> {
   bool _isConfirmPasswordVisible = false;
   bool _isLoading = false;
   bool _isGoogleLoading = false;
+  bool _isBackupLoading = false;
 
   @override
   void initState() {
@@ -103,20 +109,371 @@ class _AccountScreenState extends State<AccountScreen> {
 
     setState(() => _isGoogleLoading = true);
 
-    await _db.updateGoogleCredentials(
-      _googleClientIdController.text.trim(),
-      _googleClientSecretController.text.trim(),
+    final success = await _db.updateGoogleCredentials(
+      _googleClientIdController.text,
+      _googleClientSecretController.text,
     );
 
     if (mounted) {
       setState(() => _isGoogleLoading = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Lưu cấu hình Google Drive thành công!'),
-          backgroundColor: Colors.green,
-        ),
-      );
+      if (success > 0) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Lưu cấu hình Google thành công!'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Lưu cấu hình thất bại!'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
+  }
+
+  // ==================== SAO LƯU & KHÔI PHỤC ====================
+
+  void _restartApp() {
+    // Restart app trên Windows
+    Process.start(Platform.resolvedExecutable, []).then((_) {
+      exit(0);
+    });
+  }
+
+  Future<void> _exportLocalBackup() async {
+    try {
+      String? outputFile = await FilePicker.platform.saveFile(
+        dialogTitle: 'Chọn nơi lưu bản sao lưu',
+        fileName: 'vi_desktop_backup_${DateTime.now().millisecondsSinceEpoch}.db',
+        type: FileType.any,
+      );
+
+      if (outputFile == null) return;
+
+      final dbPath = await _db.getDatabasePath();
+      final dbFile = File(dbPath);
+
+      if (await dbFile.exists()) {
+        await dbFile.copy(outputFile);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Xuất dữ liệu thành công!'), backgroundColor: Colors.green),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Lỗi khi xuất dữ liệu: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
+  Future<void> _importLocalBackup() async {
+    try {
+      FilePickerResult? result = await FilePicker.platform.pickFiles(
+        dialogTitle: 'Chọn file database (.db) để khôi phục',
+        type: FileType.any,
+      );
+
+      if (result == null || result.files.single.path == null) return;
+
+      final backupPath = result.files.single.path!;
+      
+      if (!context.mounted) return;
+      final confirm = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Xác nhận khôi phục'),
+          content: const Text('Toàn bộ dữ liệu hiện tại sẽ bị thay thế. Bạn có chắc chắn muốn thực hiện?'),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Hủy')),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+              onPressed: () => Navigator.pop(ctx, true), 
+              child: const Text('Khôi phục', style: TextStyle(color: Colors.white))
+            ),
+          ],
+        ),
+      ) ?? false;
+
+      if (!confirm) return;
+
+      setState(() => _isBackupLoading = true);
+      
+      final success = await _db.restoreFromFile(backupPath);
+      
+      if (mounted) {
+        setState(() => _isBackupLoading = false);
+        if (success) {
+          await showDialog(
+            context: context,
+            barrierDismissible: false,
+            builder: (ctx) => AlertDialog(
+              title: const Text('Khôi phục thành công'),
+              content: const Text('Ứng dụng cần khởi động lại để áp dụng dữ liệu mới.'),
+              actions: [
+                ElevatedButton(onPressed: () => _restartApp(), child: const Text('Đồng ý')),
+              ],
+            ),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Khôi phục thất bại!'), backgroundColor: Colors.red),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isBackupLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Lỗi: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
+  Future<void> _listAndRestoreFromDrive() async {
+    try {
+      setState(() => _isBackupLoading = true);
+      
+      if (!_driveService.isAuthenticated) {
+        await _driveService.authenticate();
+      }
+
+      final files = await _driveService.listBackups();
+      
+      if (mounted) {
+        setState(() => _isBackupLoading = false);
+        if (files.isEmpty) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Không tìm thấy bản sao lưu nào trên Drive.')),
+          );
+          return;
+        }
+
+        // Show dialog list
+        if (!context.mounted) return;
+        await showDialog(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Bản sao lưu trên Google Drive'),
+            content: SizedBox(
+              width: 400,
+              height: 300,
+              child: ListView.separated(
+                itemCount: files.length,
+                separatorBuilder: (context, index) => const Divider(),
+                itemBuilder: (context, index) {
+                  final file = files[index];
+                  final name = file.name ?? 'Unknown';
+                  final date = file.createdTime != null 
+                      ? file.createdTime!.toLocal().toString().split('.')[0]
+                      : 'N/A';
+                  final size = file.size != null 
+                      ? '${(int.parse(file.size!) / 1024).toStringAsFixed(1)} KB'
+                      : '';
+
+                  return ListTile(
+                    title: Text(name),
+                    subtitle: Text('Ngày tạo: $date \nDung lượng: $size'),
+                    isThreeLine: true,
+                    trailing: const Icon(Icons.settings_backup_restore, color: Colors.blue),
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      _restoreFromDrive(file);
+                    },
+                  );
+                },
+              ),
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Đóng')),
+            ],
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isBackupLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Lỗi Drive: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
+  Future<void> _restoreFromDrive(drive_api.File driveFile) async {
+    if (driveFile.id == null || driveFile.name == null) return;
+
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Xác nhận khôi phục'),
+        content: Text('Bạn có chắc chắn muốn khôi phục dữ liệu từ bản sao lưu "${driveFile.name}"?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Hủy')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.pop(ctx, true), 
+            child: const Text('Khôi phục', style: TextStyle(color: Colors.white))
+          ),
+        ],
+      ),
+    ) ?? false;
+
+    if (!confirm) return;
+
+    try {
+      setState(() => _isBackupLoading = true);
+      
+      final tempFile = await _driveService.downloadBackup(driveFile.id!, driveFile.name!);
+      final success = await _db.restoreFromFile(tempFile.path);
+
+      if (mounted) {
+        setState(() => _isBackupLoading = false);
+        if (success) {
+          await showDialog(
+            context: context,
+            barrierDismissible: false,
+            builder: (ctx) => AlertDialog(
+              title: const Text('Khôi phục thành công'),
+              content: const Text('Dữ liệu đã được khôi phục từ Google Drive. Ứng dụng cần khởi động lại.'),
+              actions: [
+                ElevatedButton(onPressed: () => _restartApp(), child: const Text('Đồng ý')),
+              ],
+            ),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Khôi phục dữ liệu thất bại!'), backgroundColor: Colors.red),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isBackupLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Lỗi khi khôi phục: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
+  Widget _buildBackupSection(BuildContext context) {
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.start,
+      children: [
+        Icon(
+          Icons.settings_backup_restore,
+          size: 80,
+          color: Colors.green[600],
+        ),
+        const SizedBox(height: 24),
+        Text(
+          'Sao lưu & Khôi phục',
+          style: Theme.of(context)
+              .textTheme
+              .headlineSmall
+              ?.copyWith(fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          'Quản lý dữ liệu hệ thống (Google Drive & Local)',
+          style: TextStyle(color: Colors.grey[600]),
+          textAlign: TextAlign.center,
+        ),
+        const SizedBox(height: 32),
+        Card(
+          elevation: 0,
+          shape: RoundedRectangleBorder(
+            side: BorderSide(color: Colors.grey[300]!),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Row(
+                  children: [
+                    Icon(Icons.cloud_done, color: Colors.blue, size: 20),
+                    SizedBox(width: 8),
+                    Text('Google Drive',
+                        style: TextStyle(fontWeight: FontWeight.bold)),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: _isBackupLoading ? null : _listAndRestoreFromDrive,
+                    icon: _isBackupLoading
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2))
+                        : const Icon(Icons.list_alt),
+                    label: const Text('Danh sách bản sao lưu trên Drive'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 16),
+        Card(
+          elevation: 0,
+          shape: RoundedRectangleBorder(
+            side: BorderSide(color: Colors.grey[300]!),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Row(
+                  children: [
+                    Icon(Icons.storage, color: Colors.green, size: 20),
+                    SizedBox(width: 8),
+                    Text('Bản lưu cục bộ (Local)',
+                        style: TextStyle(fontWeight: FontWeight.bold)),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        style: OutlinedButton.styleFrom(foregroundColor: Colors.teal),
+                        onPressed: _isBackupLoading ? null : _exportLocalBackup,
+                        icon: const Icon(Icons.file_upload),
+                        label: const Text('Xuất file'),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.deepOrange),
+                        onPressed: _isBackupLoading ? null : _importLocalBackup,
+                        icon: const Icon(Icons.file_download),
+                        label: const Text('Nhập file'),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
   }
 
   Widget _buildPasswordSection(BuildContext context) {
@@ -131,9 +488,10 @@ class _AccountScreenState extends State<AccountScreen> {
         const SizedBox(height: 24),
         Text(
           'Đổi mật khẩu',
-          style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-            fontWeight: FontWeight.bold,
-          ),
+          style: Theme.of(context)
+              .textTheme
+              .headlineSmall
+              ?.copyWith(fontWeight: FontWeight.bold),
         ),
         const SizedBox(height: 8),
         Text(
@@ -230,8 +588,7 @@ class _AccountScreenState extends State<AccountScreen> {
                     ),
                     onPressed: () {
                       setState(() {
-                        _isConfirmPasswordVisible =
-                            !_isConfirmPasswordVisible;
+                        _isConfirmPasswordVisible = !_isConfirmPasswordVisible;
                       });
                     },
                   ),
@@ -256,14 +613,10 @@ class _AccountScreenState extends State<AccountScreen> {
                       ? const SizedBox(
                           height: 20,
                           width: 20,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                          ),
+                          child: CircularProgressIndicator(strokeWidth: 2),
                         )
                       : const Icon(Icons.save),
-                  label: Text(
-                    _isLoading ? 'Đang xử lý...' : 'Đổi mật khẩu',
-                  ),
+                  label: Text(_isLoading ? 'Đang xử lý...' : 'Đổi mật khẩu'),
                 ),
               ),
             ],
@@ -285,9 +638,10 @@ class _AccountScreenState extends State<AccountScreen> {
         const SizedBox(height: 24),
         Text(
           'Kết nối Google Drive',
-          style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-            fontWeight: FontWeight.bold,
-          ),
+          style: Theme.of(context)
+              .textTheme
+              .headlineSmall
+              ?.copyWith(fontWeight: FontWeight.bold),
         ),
         const SizedBox(height: 8),
         Text(
@@ -338,14 +692,11 @@ class _AccountScreenState extends State<AccountScreen> {
                           height: 20,
                           width: 20,
                           child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: Colors.white,
-                          ),
+                              strokeWidth: 2, color: Colors.white),
                         )
                       : const Icon(Icons.cloud_done),
                   label: Text(
-                    _isGoogleLoading ? 'Đang xử lý...' : 'Lưu cấu hình Google',
-                  ),
+                      _isGoogleLoading ? 'Đang xử lý...' : 'Lưu cấu hình Google'),
                 ),
               ),
             ],
@@ -360,33 +711,30 @@ class _AccountScreenState extends State<AccountScreen> {
     return Scaffold(
       body: LayoutBuilder(
         builder: (context, constraints) {
-          if (constraints.maxWidth > 800) {
-            // Desktop/Tablet layout: Row
+          if (constraints.maxWidth > 900) {
             return Center(
               child: SingleChildScrollView(
                 padding: const EdgeInsets.all(32),
                 child: Container(
-                  constraints: const BoxConstraints(maxWidth: 900),
+                  constraints: const BoxConstraints(maxWidth: 1400),
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Expanded(child: _buildPasswordSection(context)),
-                      const SizedBox(width: 48),
-                      // Divider
-                      Container(
-                        width: 1,
-                        height: 500,
-                        color: Colors.grey[300],
-                      ),
-                      const SizedBox(width: 48),
+                      const SizedBox(width: 32),
+                      Container(width: 1, height: 600, color: Colors.grey[300]),
+                      const SizedBox(width: 32),
                       Expanded(child: _buildGoogleSection(context)),
+                      const SizedBox(width: 32),
+                      Container(width: 1, height: 600, color: Colors.grey[300]),
+                      const SizedBox(width: 32),
+                      Expanded(child: _buildBackupSection(context)),
                     ],
                   ),
                 ),
               ),
             );
           } else {
-            // Mobile layout: Column
             return Center(
               child: SingleChildScrollView(
                 padding: const EdgeInsets.all(32),
@@ -395,10 +743,14 @@ class _AccountScreenState extends State<AccountScreen> {
                   child: Column(
                     children: [
                       _buildPasswordSection(context),
-                      const SizedBox(height: 48),
+                      const SizedBox(height: 32),
                       const Divider(),
-                      const SizedBox(height: 48),
+                      const SizedBox(height: 32),
                       _buildGoogleSection(context),
+                      const SizedBox(height: 32),
+                      const Divider(),
+                      const SizedBox(height: 32),
+                      _buildBackupSection(context),
                     ],
                   ),
                 ),
