@@ -161,7 +161,7 @@ class _TimekeepingScreenState extends State<TimekeepingScreen> {
       return InkWell(
         onTap: () => _cycleStatus(pId, tpId, day),
         borderRadius: BorderRadius.circular(4),
-        child: const SizedBox(width: 36, height: 32),
+        child: const SizedBox(width: 32, height: 28),
       );
     }
 
@@ -208,8 +208,8 @@ class _TimekeepingScreenState extends State<TimekeepingScreen> {
         onTap: () => _cycleStatus(pId, tpId, day),
         borderRadius: BorderRadius.circular(4),
         child: Container(
-          width: 36,
-          height: 28,
+          width: 32,
+          height: 24,
           decoration: BoxDecoration(
             color: bgColor,
             borderRadius: BorderRadius.circular(4),
@@ -219,7 +219,7 @@ class _TimekeepingScreenState extends State<TimekeepingScreen> {
             label,
             style: TextStyle(
               color: textColor,
-              fontSize: 13,
+              fontSize: 11,
               fontWeight: FontWeight.bold,
             ),
           ),
@@ -236,106 +236,129 @@ class _TimekeepingScreenState extends State<TimekeepingScreen> {
       body: Column(
         children: [
           Container(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             color: Colors.grey[100],
             child: Row(
               children: [
-                DropdownButton<int>(
-                  value: _selectedMonth,
-                  items: List.generate(12, (index) {
-                    return DropdownMenuItem(
-                      value: index + 1,
-                      child: Text('Tháng ${index + 1}'),
-                    );
-                  }),
-                  onChanged: (value) async {
-                    setState(() {
-                      _selectedMonth = value!;
-                      _isLoading = true;
-                    });
-                    await _loadTimekeepingData();
-                    setState(() => _isLoading = false);
-                  },
-                ),
-                const SizedBox(width: 16),
-                DropdownButton<int>(
-                  value: _selectedYear,
-                  items: List.generate(10, (index) {
-                    final year = DateTime.now().year - 5 + index;
-                    return DropdownMenuItem(
-                      value: year,
-                      child: Text('Năm $year'),
-                    );
-                  }),
-                  onChanged: (value) async {
-                    setState(() {
-                      _selectedYear = value!;
-                      _isLoading = true;
-                    });
-                    await _loadTimekeepingData();
-                    setState(() => _isLoading = false);
-                  },
-                ),
-                const SizedBox(width: 16),
-                DropdownButton<int?>(
-                  value: _selectedFilterTpId,
-                  hint: const Text('Lọc theo điểm GD'),
-                  items: [
-                    const DropdownMenuItem<int?>(
-                      value: null,
-                      child: Text('Tất cả Điểm GD'),
+                Expanded(
+                  child: SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        MouseRegion(
+                          cursor: SystemMouseCursors.click,
+                          child: DropdownButton<int>(
+                            value: _selectedMonth,
+                            items: List.generate(12, (index) {
+                              return DropdownMenuItem(
+                                value: index + 1,
+                                child: Text('Tháng ${index + 1}'),
+                              );
+                            }),
+                            onChanged: (value) async {
+                              setState(() {
+                                _selectedMonth = value!;
+                                _isLoading = true;
+                              });
+                              await _loadTimekeepingData();
+                              setState(() => _isLoading = false);
+                            },
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        MouseRegion(
+                          cursor: SystemMouseCursors.click,
+                          child: DropdownButton<int>(
+                            value: _selectedYear,
+                            items: List.generate(10, (index) {
+                              final year = DateTime.now().year - 5 + index;
+                              return DropdownMenuItem(
+                                value: year,
+                                child: Text('Năm $year'),
+                              );
+                            }),
+                            onChanged: (value) async {
+                              setState(() {
+                                _selectedYear = value!;
+                                _isLoading = true;
+                              });
+                              await _loadTimekeepingData();
+                              setState(() => _isLoading = false);
+                            },
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        MouseRegion(
+                          cursor: SystemMouseCursors.click,
+                          child: DropdownButton<int?>(
+                            value: _selectedFilterTpId,
+                            hint: const Text('Lọc theo điểm GD'),
+                            items: [
+                              const DropdownMenuItem<int?>(
+                                value: null,
+                                child: Text('Tất cả Điểm GD'),
+                              ),
+                              ..._transactionPoints.map((tp) => DropdownMenuItem<int?>(
+                                    value: tp.id,
+                                    child: Text(tp.name),
+                                  )),
+                            ],
+                            onChanged: (value) {
+                              setState(() {
+                                _selectedFilterTpId = value;
+                              });
+                            },
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        // Legend
+                        _StatusBadge(
+                          color: Colors.blue.shade100,
+                          textColor: Colors.blue.shade800,
+                          label: 'TX',
+                          tooltip: 'Tài xế',
+                        ),
+                        const SizedBox(width: 4),
+                        _StatusBadge(
+                          color: Colors.cyan.shade100,
+                          textColor: Colors.cyan.shade900,
+                          label: 'PX',
+                          tooltip: 'Phụ xe',
+                        ),
+                        const SizedBox(width: 4),
+                        _StatusBadge(
+                          color: Colors.orange.shade100,
+                          textColor: Colors.orange.shade900,
+                          label: 'NP',
+                          tooltip: 'Nghỉ Phép',
+                        ),
+                        const SizedBox(width: 4),
+                        _StatusBadge(
+                          color: Colors.red.shade100,
+                          textColor: Colors.red.shade900,
+                          label: 'KP',
+                          tooltip: 'Nghỉ Không Phép',
+                        ),
+                        const SizedBox(width: 8),
+                        Text('← Click để đổi trạng thái',
+                            style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+                      ],
                     ),
-                    ..._transactionPoints.map((tp) => DropdownMenuItem<int?>(
-                          value: tp.id,
-                          child: Text(tp.name),
-                        )),
-                  ],
-                  onChanged: (value) {
-                    setState(() {
-                      _selectedFilterTpId = value;
-                    });
-                  },
+                  ),
                 ),
-                const SizedBox(width: 16),
-                // Legend
-                _StatusBadge(
-                  color: Colors.blue.shade100,
-                  textColor: Colors.blue.shade800,
-                  label: 'TX',
-                  tooltip: 'Tài xế',
-                ),
-                const SizedBox(width: 4),
-                _StatusBadge(
-                  color: Colors.cyan.shade100,
-                  textColor: Colors.cyan.shade900,
-                  label: 'PX',
-                  tooltip: 'Phụ xe',
-                ),
-                const SizedBox(width: 4),
-                _StatusBadge(
-                  color: Colors.orange.shade100,
-                  textColor: Colors.orange.shade900,
-                  label: 'NP',
-                  tooltip: 'Nghỉ Phép',
-                ),
-                const SizedBox(width: 4),
-                _StatusBadge(
-                  color: Colors.red.shade100,
-                  textColor: Colors.red.shade900,
-                  label: 'KP',
-                  tooltip: 'Nghỉ Không Phép',
-                ),
-                const SizedBox(width: 8),
-                Text('← Click để đổi trạng thái',
-                    style: TextStyle(fontSize: 12, color: Colors.grey[600])),
-                const Spacer(),
-                ElevatedButton.icon(
-                  onPressed: _saveData,
-                  icon: const Icon(Icons.save),
-                  style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.green,
-                      foregroundColor: Colors.white),
-                  label: const Text('Lưu toàn bộ'),
+                const SizedBox(width: 12),
+                MouseRegion(
+                  cursor: SystemMouseCursors.click,
+                  child: ElevatedButton.icon(
+                    onPressed: _saveData,
+                    icon: const Icon(Icons.save, size: 18),
+                    style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.green,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10)),
+                    label: const Text('Lưu toàn bộ'),
+                  ),
                 ),
               ],
             ),
@@ -407,10 +430,10 @@ class _TimekeepingScreenState extends State<TimekeepingScreen> {
                                       scrollDirection: Axis.horizontal,
                                       child: DataTable(
                                         border: TableBorder.all(color: Colors.grey.shade300),
-                                        columnSpacing: 8,
-                                        dataRowMinHeight: 40,
-                                        dataRowMaxHeight: 48,
-                                        headingRowHeight: 40,
+                                        columnSpacing: 4,
+                                        dataRowMinHeight: 36,
+                                        dataRowMaxHeight: 44,
+                                        headingRowHeight: 36,
                                         headingRowColor: WidgetStateProperty.all(Colors.blue[50]),
                                         columns: [
                                           const DataColumn(
@@ -435,11 +458,11 @@ class _TimekeepingScreenState extends State<TimekeepingScreen> {
                                           return DataRow(
                                             cells: [
                                               DataCell(
-                                                Container(
-                                                  width: 120, // fixed width for transaction point name
+                                                ConstrainedBox(
+                                                  constraints: const BoxConstraints(maxWidth: 100),
                                                   child: Text(tp.name, 
                                                     overflow: TextOverflow.ellipsis,
-                                                    style: const TextStyle(fontWeight: FontWeight.w500)
+                                                    style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 12)
                                                   )
                                                 )
                                               ),
@@ -485,8 +508,8 @@ class _StatusBadge extends StatelessWidget {
     return Tooltip(
       message: tooltip,
       child: Container(
-        width: 32,
-        height: 24,
+        width: 28,
+        height: 22,
         decoration: BoxDecoration(
           color: color,
           borderRadius: BorderRadius.circular(4),
@@ -496,7 +519,7 @@ class _StatusBadge extends StatelessWidget {
           label,
           style: TextStyle(
             color: textColor,
-            fontSize: 12,
+            fontSize: 11,
             fontWeight: FontWeight.bold,
           ),
         ),
