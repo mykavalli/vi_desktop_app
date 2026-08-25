@@ -7,6 +7,7 @@ import '../database/database_helper.dart';
 import '../models/personnel.dart';
 import '../models/timekeeping.dart';
 import '../state/app_state.dart';
+import '../widgets/compact_date_range_picker.dart';
 
 class TimekeepingDetailScreen extends StatefulWidget {
   const TimekeepingDetailScreen({super.key});
@@ -19,9 +20,12 @@ class TimekeepingDetailScreen extends StatefulWidget {
 class _TimekeepingDetailScreenState extends State<TimekeepingDetailScreen> {
   final DatabaseHelper _db = DatabaseHelper.instance;
 
-  int _selectedMonth = DateTime.now().month;
-  int _selectedYear = DateTime.now().year;
+  DateTime _startDate = DateTime(DateTime.now().year, DateTime.now().month, 1);
+  DateTime _endDate = DateTime(DateTime.now().year, DateTime.now().month + 1, 0);
   int? _selectedPersonnelId;
+
+  String _searchEmployeeQuery = '';
+  final TextEditingController _searchEmployeeController = TextEditingController();
 
   List<Personnel> _personnelList = [];
   List<TimekeepingDetail> _details = [];
@@ -37,6 +41,7 @@ class _TimekeepingDetailScreenState extends State<TimekeepingDetailScreen> {
   @override
   void dispose() {
     AppState.instance.dataVersion.removeListener(_onDataChanged);
+    _searchEmployeeController.dispose();
     super.dispose();
   }
 
@@ -53,8 +58,8 @@ class _TimekeepingDetailScreenState extends State<TimekeepingDetailScreen> {
 
   Future<void> _loadDetails() async {
     _details = await _db.getTimekeepingDetail(
-      year: _selectedYear,
-      month: _selectedMonth,
+      startDate: _startDate,
+      endDate: _endDate,
       personnelId: _selectedPersonnelId,
     );
   }
@@ -62,6 +67,10 @@ class _TimekeepingDetailScreenState extends State<TimekeepingDetailScreen> {
   Map<int, Map<DateTime, List<TimekeepingDetail>>> _groupByPersonnel() {
     Map<int, Map<DateTime, List<TimekeepingDetail>>> grouped = {};
     for (var detail in _details) {
+      if (_searchEmployeeQuery.isNotEmpty) {
+        final q = _searchEmployeeQuery.toLowerCase();
+        if (!detail.personnelName.toLowerCase().contains(q)) continue;
+      }
       grouped.putIfAbsent(detail.personnelId, () => {});
       final dateKey = DateTime(
         detail.date.year,
@@ -292,10 +301,13 @@ class _TimekeepingDetailScreenState extends State<TimekeepingDetailScreen> {
       });
     });
 
+    final sName = DateFormat('ddMM').format(_startDate);
+    final eName = DateFormat('ddMM_yyyy').format(_endDate);
+
     final outputPath = await FilePicker.platform.saveFile(
       dialogTitle: 'Lưu file Excel',
       fileName:
-          'Chi_tiet_cham_cong_Thang${_selectedMonth}_$_selectedYear.xlsx',
+          'Chi_tiet_cham_cong_${sName}_den_${eName}.xlsx',
       type: FileType.custom,
       allowedExtensions: ['xlsx'],
     );
@@ -354,45 +366,48 @@ class _TimekeepingDetailScreenState extends State<TimekeepingDetailScreen> {
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
-                  MouseRegion(
-                    cursor: SystemMouseCursors.click,
-                    child: DropdownButton<int>(
-                      value: _selectedMonth,
-                      items: List.generate(12, (index) {
-                        return DropdownMenuItem(
-                          value: index + 1,
-                          child: Text('Tháng ${index + 1}'),
-                        );
-                      }),
-                      onChanged: (value) {
-                        setState(() {
-                          _selectedMonth = value!;
-                        });
-                      },
-                    ),
+                  // Single Compact Date Range Picker Input
+                  CompactDateRangePicker(
+                    startDate: _startDate,
+                    endDate: _endDate,
+                    onDateRangeChanged: (start, end) async {
+                      setState(() {
+                        _startDate = start;
+                        _endDate = end;
+                        _isLoading = true;
+                      });
+                      await _loadDetails();
+                      setState(() => _isLoading = false);
+                    },
                   ),
                   const SizedBox(width: 16),
-                  MouseRegion(
-                    cursor: SystemMouseCursors.click,
-                    child: DropdownButton<int>(
-                      value: _selectedYear,
-                      items: List.generate(10, (index) {
-                        final year = DateTime.now().year - 5 + index;
-                        return DropdownMenuItem(
-                          value: year,
-                          child: Text('Năm $year'),
-                        );
-                      }),
-                      onChanged: (value) {
-                        setState(() {
-                          _selectedYear = value!;
-                        });
-                      },
+                  // Employee Search Text Field
+                  SizedBox(
+                    width: 180,
+                    child: TextField(
+                      controller: _searchEmployeeController,
+                      decoration: InputDecoration(
+                        labelText: 'Tìm tên NV...',
+                        prefixIcon: const Icon(Icons.search, size: 18),
+                        border: const OutlineInputBorder(),
+                        isDense: true,
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                        suffixIcon: _searchEmployeeQuery.isNotEmpty
+                            ? IconButton(
+                                icon: const Icon(Icons.clear, size: 16),
+                                onPressed: () {
+                                  _searchEmployeeController.clear();
+                                  setState(() => _searchEmployeeQuery = '');
+                                },
+                              )
+                            : null,
+                      ),
+                      onChanged: (v) => setState(() => _searchEmployeeQuery = v),
                     ),
                   ),
                   const SizedBox(width: 16),
                   SizedBox(
-                    width: 200,
+                    width: 180,
                     child: DropdownButtonFormField<int?>(
                       value: _selectedPersonnelId,
                       decoration: const InputDecoration(
@@ -413,6 +428,7 @@ class _TimekeepingDetailScreenState extends State<TimekeepingDetailScreen> {
                             value: p.id,
                             child: Text(
                               p.name + (isResigned ? ' [Đã nghỉ]' : ''),
+                              overflow: TextOverflow.ellipsis,
                               style: TextStyle(
                                 color: isResigned
                                     ? Colors.grey.shade500
@@ -422,10 +438,13 @@ class _TimekeepingDetailScreenState extends State<TimekeepingDetailScreen> {
                           );
                         }),
                       ],
-                      onChanged: (value) {
+                      onChanged: (value) async {
                         setState(() {
                           _selectedPersonnelId = value;
+                          _isLoading = true;
                         });
+                        await _loadDetails();
+                        setState(() => _isLoading = false);
                       },
                     ),
                   ),

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:excel/excel.dart' as xls;
 import 'package:file_picker/file_picker.dart';
 import 'dart:io';
@@ -7,6 +8,7 @@ import '../models/personnel.dart';
 import '../models/transaction_point.dart';
 import '../models/timekeeping.dart';
 import '../state/app_state.dart';
+import '../widgets/compact_date_range_picker.dart';
 
 class TimekeepingSummaryScreen extends StatefulWidget {
   final Function(int)? onNavigate;
@@ -21,8 +23,8 @@ class TimekeepingSummaryScreen extends StatefulWidget {
 class _TimekeepingSummaryScreenState extends State<TimekeepingSummaryScreen> {
   final DatabaseHelper _db = DatabaseHelper.instance;
 
-  int _selectedMonth = DateTime.now().month;
-  int _selectedYear = DateTime.now().year;
+  DateTime _startDate = DateTime(DateTime.now().year, DateTime.now().month, 1);
+  DateTime _endDate = DateTime(DateTime.now().year, DateTime.now().month + 1, 0);
   int? _selectedPersonnelId;
 
   List<Personnel> _personnelList = [];
@@ -82,8 +84,8 @@ class _TimekeepingSummaryScreenState extends State<TimekeepingSummaryScreen> {
 
   Future<void> _loadSummary() async {
     _summaries = await _db.getTimekeepingSummary(
-      year: _selectedYear,
-      month: _selectedMonth,
+      startDate: _startDate,
+      endDate: _endDate,
       personnelId: _selectedPersonnelId,
     );
   }
@@ -211,10 +213,13 @@ class _TimekeepingSummaryScreenState extends State<TimekeepingSummaryScreen> {
     _setExcelCell(sheet, totalsOffset + 3, totalsRowIndex, xls.IntCellValue(grandTotalOff), headerStyle);
     _setExcelCell(sheet, totalsOffset + 4, totalsRowIndex, xls.IntCellValue(grandTotalUnauth), headerStyle);
 
+    final sName = DateFormat('ddMM').format(_startDate);
+    final eName = DateFormat('ddMM_yyyy').format(_endDate);
+
     final outputPath = await FilePicker.platform.saveFile(
       dialogTitle: 'Lưu file Excel',
       fileName:
-          'Cham_cong_tong_hop_Thang${_selectedMonth}_$_selectedYear.xlsx',
+          'Cham_cong_tong_hop_${sName}_den_${eName}.xlsx',
       type: FileType.custom,
       allowedExtensions: ['xlsx'],
     );
@@ -301,36 +306,24 @@ class _TimekeepingSummaryScreenState extends State<TimekeepingSummaryScreen> {
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
-                    MouseRegion(
-                      cursor: SystemMouseCursors.click,
-                      child: DropdownButton<int>(
-                        value: _selectedMonth,
-                        items: List.generate(12, (i) => DropdownMenuItem(
-                          value: i + 1,
-                          child: Text('Tháng ${i + 1}'),
-                        )),
-                        onChanged: (v) => setState(() => _selectedMonth = v!),
-                      ),
+                    // Single Compact Date Range Picker Input
+                    CompactDateRangePicker(
+                      startDate: _startDate,
+                      endDate: _endDate,
+                      onDateRangeChanged: (start, end) async {
+                        setState(() {
+                          _startDate = start;
+                          _endDate = end;
+                          _isLoading = true;
+                        });
+                        await _loadData();
+                        setState(() => _isLoading = false);
+                      },
                     ),
                     const SizedBox(width: 16),
-                    MouseRegion(
-                      cursor: SystemMouseCursors.click,
-                      child: DropdownButton<int>(
-                        value: _selectedYear,
-                        items: List.generate(10, (i) {
-                          final year = DateTime.now().year - 5 + i;
-                          return DropdownMenuItem(
-                            value: year,
-                            child: Text('Năm $year'),
-                          );
-                        }),
-                        onChanged: (v) => setState(() => _selectedYear = v!),
-                      ),
-                    ),
-                    const SizedBox(width: 16),
-                    // Personnel Filter
+                    // Personnel Filter Dropdown
                     SizedBox(
-                      width: 200,
+                      width: 180,
                       child: DropdownButtonFormField<int?>(
                         decoration: const InputDecoration(
                           border: OutlineInputBorder(),
@@ -349,8 +342,14 @@ class _TimekeepingSummaryScreenState extends State<TimekeepingSummaryScreen> {
                                     overflow: TextOverflow.ellipsis),
                               )),
                         ],
-                        onChanged: (val) =>
-                            setState(() => _selectedPersonnelId = val),
+                        onChanged: (val) async {
+                          setState(() {
+                            _selectedPersonnelId = val;
+                            _isLoading = true;
+                          });
+                          await _loadSummary();
+                          setState(() => _isLoading = false);
+                        },
                       ),
                     ),
                     const SizedBox(width: 16),
@@ -359,14 +358,15 @@ class _TimekeepingSummaryScreenState extends State<TimekeepingSummaryScreen> {
                       icon: const Icon(Icons.filter_alt),
                       label: const Text('Lọc'),
                     ),
-                    const SizedBox(width: 24),
+                    const SizedBox(width: 16),
+                    // Search Employee Text Field
                     SizedBox(
-                      width: 200,
+                      width: 180,
                       child: TextField(
                         controller: _searchController,
                         decoration: InputDecoration(
                           labelText: 'Tìm nhân viên...',
-                          prefixIcon: const Icon(Icons.search),
+                          prefixIcon: const Icon(Icons.search, size: 18),
                           border: const OutlineInputBorder(),
                           isDense: true,
                           contentPadding: const EdgeInsets.symmetric(

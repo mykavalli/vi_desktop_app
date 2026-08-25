@@ -94,6 +94,7 @@ class _LoginScreenState extends State<LoginScreen> {
               const SizedBox(height: 48),
               TextField(
                 controller: _passwordController,
+                autofocus: true,
                 obscureText: true,
                 decoration: InputDecoration(
                   labelText: 'Mật khẩu',

@@ -6,6 +6,7 @@ import '../models/personnel.dart';
 import '../models/job_position.dart';
 import '../models/transaction_point.dart';
 import '../models/timekeeping.dart';
+import 'package:intl/intl.dart';
 
 class DatabaseHelper {
   static final DatabaseHelper instance = DatabaseHelper._init();
@@ -449,16 +450,28 @@ class DatabaseHelper {
   }
 
   Future<List<TimekeepingDetail>> getTimekeepingDetail({
-    required int year,
-    required int month,
+    DateTime? startDate,
+    DateTime? endDate,
+    int? year,
+    int? month,
     int? personnelId,
   }) async {
     final db = await database;
-    String where = "strftime('%Y', t.date) = ? AND strftime('%m', t.date) = ?";
-    List<dynamic> whereArgs = [
-      year.toString(),
-      month.toString().padLeft(2, '0'),
-    ];
+    String where;
+    List<dynamic> whereArgs = [];
+
+    if (startDate != null && endDate != null) {
+      final sStr = DateFormat('yyyy-MM-dd').format(startDate);
+      final eStr = DateFormat('yyyy-MM-dd').format(endDate);
+      where = "t.date >= ? AND t.date <= ?";
+      whereArgs = [sStr, eStr];
+    } else {
+      where = "strftime('%Y', t.date) = ? AND strftime('%m', t.date) = ?";
+      whereArgs = [
+        (year ?? DateTime.now().year).toString(),
+        (month ?? DateTime.now().month).toString().padLeft(2, '0'),
+      ];
+    }
 
     if (personnelId != null) {
       where += ' AND t.personnel_id = ?';
@@ -469,37 +482,49 @@ class DatabaseHelper {
       SELECT 
         t.id as timekeeping_id,
         t.personnel_id,
-        p.name as personnel_name,
-        p.is_working as personnel_is_working,
+        COALESCE(p.name, 'N/A') as personnel_name,
+        COALESCE(p.is_working, 1) as personnel_is_working,
         t.date,
         t.job_position_id,
-        jp.name as job_position_name,
+        COALESCE(jp.name, 'N/A') as job_position_name,
         t.transaction_point_id,
-        tp.name as transaction_point_name,
+        COALESCE(tp.name, 'N/A') as transaction_point_name,
         t.day_status
       FROM timekeeping t
-      INNER JOIN personnel p ON t.personnel_id = p.id
-      INNER JOIN job_positions jp ON t.job_position_id = jp.id
-      INNER JOIN transaction_points tp ON t.transaction_point_id = tp.id
+      LEFT JOIN personnel p ON t.personnel_id = p.id
+      LEFT JOIN job_positions jp ON t.job_position_id = jp.id
+      LEFT JOIN transaction_points tp ON t.transaction_point_id = tp.id
       WHERE $where
-      ORDER BY t.date ASC, p.name ASC
+      ORDER BY t.date ASC, COALESCE(p.name, '') ASC
     ''', whereArgs);
 
     return result.map((map) => TimekeepingDetail.fromMap(map)).toList();
   }
 
   Future<List<TimekeepingSummary>> getTimekeepingSummary({
-    required int year,
-    required int month,
+    DateTime? startDate,
+    DateTime? endDate,
+    int? year,
+    int? month,
     int? personnelId,
   }) async {
     final db = await database;
 
-    String where = "strftime('%Y', t.date) = ? AND strftime('%m', t.date) = ?";
-    List<dynamic> whereArgs = [
-      year.toString(),
-      month.toString().padLeft(2, '0'),
-    ];
+    String where;
+    List<dynamic> whereArgs = [];
+
+    if (startDate != null && endDate != null) {
+      final sStr = DateFormat('yyyy-MM-dd').format(startDate);
+      final eStr = DateFormat('yyyy-MM-dd').format(endDate);
+      where = "t.date >= ? AND t.date <= ?";
+      whereArgs = [sStr, eStr];
+    } else {
+      where = "strftime('%Y', t.date) = ? AND strftime('%m', t.date) = ?";
+      whereArgs = [
+        (year ?? DateTime.now().year).toString(),
+        (month ?? DateTime.now().month).toString().padLeft(2, '0'),
+      ];
+    }
 
     if (personnelId != null) {
       where += ' AND t.personnel_id = ?';
@@ -509,17 +534,17 @@ class DatabaseHelper {
     final result = await db.rawQuery('''
       SELECT 
         t.personnel_id,
-        p.name as personnel_name,
-        p.is_working as personnel_is_working,
-        p.role as personnel_role,
-        tp.name as transaction_point_name,
+        COALESCE(p.name, 'N/A') as personnel_name,
+        COALESCE(p.is_working, 1) as personnel_is_working,
+        COALESCE(p.role, '') as personnel_role,
+        COALESCE(tp.name, 'N/A') as transaction_point_name,
         t.date,
         t.day_status
       FROM timekeeping t
-      INNER JOIN personnel p ON t.personnel_id = p.id
-      INNER JOIN transaction_points tp ON t.transaction_point_id = tp.id
+      LEFT JOIN personnel p ON t.personnel_id = p.id
+      LEFT JOIN transaction_points tp ON t.transaction_point_id = tp.id
       WHERE $where
-      ORDER BY p.name ASC, tp.name ASC
+      ORDER BY COALESCE(p.name, '') ASC, COALESCE(tp.name, '') ASC
     ''', whereArgs);
 
     Map<int, Map<String, dynamic>> summaryMap = {};
@@ -539,13 +564,11 @@ class DatabaseHelper {
           'personnel_name': personnelName,
           'personnel_role': personnelRole,
           'is_working': isWorking,
-          // Map<tpName, Set<date>> — for counting TX days per transaction point
           'tx_dates_by_tp': <String, Set<String>>{},
-          // For whole month totals
           'px_dates': <String>{},
           'np_dates': <String>{},
           'kp_dates': <String>{},
-          'all_working_dates': <String>{}, // To avoid double counting total TX+PX if somehow there are duplicates
+          'all_working_dates': <String>{},
         };
       }
 
@@ -575,7 +598,6 @@ class DatabaseHelper {
       final totalPx = (data['px_dates'] as Set<String>).length;
       final totalDaysOff = (data['np_dates'] as Set<String>).length;
       final totalDaysUnauth = (data['kp_dates'] as Set<String>).length;
-      // total working days = unique dates where they were either TX or PX
       final totalWorkingDays = (data['all_working_dates'] as Set<String>).length;
 
       return TimekeepingSummary(
@@ -631,6 +653,25 @@ class DatabaseHelper {
     return await db.delete('timekeeping', where: where, whereArgs: whereArgs);
   }
 
+  Future<int> deleteTimekeepingByDateRange({
+    required DateTime startDate,
+    required DateTime endDate,
+    int? personnelId,
+  }) async {
+    final db = await database;
+    final sStr = DateFormat('yyyy-MM-dd').format(startDate);
+    final eStr = DateFormat('yyyy-MM-dd').format(endDate);
+    String where = "date >= ? AND date <= ?";
+    List<dynamic> whereArgs = [sStr, eStr];
+
+    if (personnelId != null) {
+      where += ' AND personnel_id = ?';
+      whereArgs.add(personnelId);
+    }
+
+    return await db.delete('timekeeping', where: where, whereArgs: whereArgs);
+  }
+
   Future<int> deleteTimekeepingByDate(int personnelId, DateTime date) async {
     final db = await database;
     final dateStr = date.toIso8601String().split('T')[0];
@@ -639,6 +680,21 @@ class DatabaseHelper {
       where: 'personnel_id = ? AND date = ?',
       whereArgs: [personnelId, dateStr],
     );
+  }
+
+  Future<List<Timekeeping>> getTimekeepingByDateRange({
+    required DateTime startDate,
+    required DateTime endDate,
+  }) async {
+    final db = await database;
+    final sStr = DateFormat('yyyy-MM-dd').format(startDate);
+    final eStr = DateFormat('yyyy-MM-dd').format(endDate);
+    final maps = await db.query(
+      'timekeeping',
+      where: "date >= ? AND date <= ?",
+      whereArgs: [sStr, eStr],
+    );
+    return maps.map((map) => Timekeeping.fromMap(map)).toList();
   }
 
   Future<List<Timekeeping>> getTimekeepingByMonth({
