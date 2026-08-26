@@ -1,8 +1,8 @@
 ﻿{
-  "version": "1.0.1",
-  "build_number": 2,
+  "version": "1.0.2",
+  "build_number": 3,
   "release_date": "2026-08-26",
-  "changelog": "- Chuyển sang cơ chế sao lưu dữ liệu cục bộ trên máy tính (nhanh chóng, an toàn, không cần cấu hình).\n- Quản lý danh sách các bản sao lưu trực tiếp trong phần Cài đặt.\n- Tự động ghi nhận phiên bản mới v1.0.1 sau khi cập nhật.",
-  "download_url": "https://raw.githubusercontent.com/mykavalli/vi_desktop_app/updates/vi_patch_v1.0.1.zip",
+  "changelog": "- Tự động áp dụng và đóng popup khi chọn xong Từ ngày & Đến ngày (không cần bấm Save hay Edit).\n- Chuyển sang cơ chế sao lưu dữ liệu cục bộ trên máy tính (nhanh chóng, an toàn, không cần cấu hình).\n- Quản lý danh sách các bản sao lưu trực tiếp trong phần Cài đặt.",
+  "download_url": "https://raw.githubusercontent.com/mykavalli/vi_desktop_app/updates/vi_patch_v1.0.2.zip",
   "mandatory": false
 }
