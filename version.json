@@ -1,8 +1,8 @@
 ﻿{
-  "version": "1.0.4",
-  "build_number": 5,
+  "version": "1.0.5",
+  "build_number": 6,
   "release_date": "2026-08-26",
-  "changelog": "- Thêm tính năng Xuất Excel trên trang Chấm công đúng theo bộ lọc & tìm kiếm trên màn hình.\n- Ngăn chặn mở nhiều ứng dụng cùng lúc (tự động đưa ứng dụng đang chạy lên màn hình).",
-  "download_url": "https://raw.githubusercontent.com/mykavalli/vi_desktop_app/updates/vi_patch_v1.0.4.zip",
+  "changelog": "- Thêm nút 'Mở file' sau khi xuất Excel ở trang Chấm công.\n- Tự động mở toàn màn hình (full screen/maximized) khi khởi động app.\n- Tự động focus vào ô nhập mật khẩu khi mở app.",
+  "download_url": "https://raw.githubusercontent.com/mykavalli/vi_desktop_app/updates/vi_patch_v1.0.5.zip",
   "mandatory": false
 }
