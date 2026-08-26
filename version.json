@@ -1,8 +1,8 @@
 ﻿{
-  "version": "1.0.3",
-  "build_number": 4,
+  "version": "1.0.4",
+  "build_number": 5,
   "release_date": "2026-08-26",
-  "changelog": "- Sửa lỗi hiển thị thời gian sao lưu chính xác theo thời điểm tạo file.\n- Khóa popup khi đang tải bản cập nhật và khi chọn ngày (không bị mất khi click ra ngoài).\n- Chọn xong Từ ngày & Đến ngày tự động áp dụng và đóng popup.",
-  "download_url": "https://raw.githubusercontent.com/mykavalli/vi_desktop_app/updates/vi_patch_v1.0.3.zip",
+  "changelog": "- Thêm tính năng Xuất Excel trên trang Chấm công đúng theo bộ lọc & tìm kiếm trên màn hình.\n- Ngăn chặn mở nhiều ứng dụng cùng lúc (tự động đưa ứng dụng đang chạy lên màn hình).",
+  "download_url": "https://raw.githubusercontent.com/mykavalli/vi_desktop_app/updates/vi_patch_v1.0.4.zip",
   "mandatory": false
 }
