@@ -786,6 +786,101 @@ class DatabaseHelper {
     return join(dbPath, 'vi_desktop_app.db');
   }
 
+  /// Lấy đường dẫn thư mục sao lưu cục bộ (mặc định trong Documents/Vi_Desktop_App_Backups hoặc do người dùng chọn)
+  Future<String> getBackupDirectoryPath() async {
+    final user = await getUser();
+    if (user?.googleClientId != null && user!.googleClientId!.trim().isNotEmpty) {
+      final dir = Directory(user.googleClientId!.trim());
+      if (await dir.exists()) {
+        return dir.path;
+      }
+    }
+    final userProfile = Platform.environment['USERPROFILE'] ?? Platform.environment['HOME'] ?? '';
+    final defaultDir = Directory('$userProfile/Documents/Vi_Desktop_App_Backups');
+    if (!await defaultDir.exists()) {
+      await defaultDir.create(recursive: true);
+    }
+    return defaultDir.path;
+  }
+
+  /// Cập nhật thư mục sao lưu cục bộ
+  Future<void> setBackupDirectoryPath(String folderPath) async {
+    final user = await getUser();
+    if (user != null) {
+      final db = await database;
+      await db.update(
+        'users',
+        {'google_client_id': folderPath.trim()},
+        where: 'id = ?',
+        whereArgs: [user.id],
+      );
+    }
+  }
+
+  /// Tạo bản sao lưu ngay vào thư mục sao lưu
+  Future<File?> createBackupFile({String? customFolderPath}) async {
+    try {
+      final folderPath = customFolderPath ?? await getBackupDirectoryPath();
+      final folder = Directory(folderPath);
+      if (!await folder.exists()) {
+        await folder.create(recursive: true);
+      }
+
+      final dbPath = await getDatabasePath();
+      final dbFile = File(dbPath);
+      if (!await dbFile.exists()) return null;
+
+      final timestamp = DateFormat('yyyyMMdd_HHmmss').format(DateTime.now());
+      final backupFileName = 'vi_backup_$timestamp.db';
+      final backupFilePath = join(folder.path, backupFileName);
+
+      return await dbFile.copy(backupFilePath);
+    } catch (e) {
+      print('Backup error: $e');
+      return null;
+    }
+  }
+
+  /// Lấy danh sách các file sao lưu cục bộ (.db)
+  Future<List<File>> listLocalBackupFiles() async {
+    try {
+      final folderPath = await getBackupDirectoryPath();
+      final folder = Directory(folderPath);
+      if (!await folder.exists()) return [];
+
+      final files = folder
+          .listSync()
+          .whereType<File>()
+          .where((f) => f.path.toLowerCase().endsWith('.db'))
+          .toList();
+
+      files.sort((a, b) {
+        final aTime = a.statSync().modified;
+        final bTime = b.statSync().modified;
+        return bTime.compareTo(aTime);
+      });
+
+      return files;
+    } catch (e) {
+      print('List local backup error: $e');
+      return [];
+    }
+  }
+
+  /// Xóa 1 bản sao lưu cục bộ
+  Future<bool> deleteLocalBackup(String filePath) async {
+    try {
+      final file = File(filePath);
+      if (await file.exists()) {
+        await file.delete();
+        return true;
+      }
+      return false;
+    } catch (e) {
+      return false;
+    }
+  }
+
   /// Restore database từ file backup:
   /// 1. Đóng connection hiện tại
   /// 2. Copy file backup vào vị trí DB

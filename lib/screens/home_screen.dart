@@ -9,10 +9,9 @@ import 'account_screen.dart';
 import 'login_screen.dart';
 import 'guide_screen.dart';
 import 'package:window_manager/window_manager.dart';
-import '../services/google_drive_service.dart';
 import '../services/update_service.dart';
+import '../database/database_helper.dart';
 import 'dart:io';
-import 'package:sqflite/sqflite.dart';
 import 'dart:async';
 
 class HomeScreen extends StatefulWidget {
@@ -34,8 +33,6 @@ class _HomeScreenState extends State<HomeScreen> with WindowListener {
   }
 
   Future<void> _initServices() async {
-    // Tự động khôi phục phiên Google Drive nếu có
-    await GoogleDriveService.instance.restoreSession();
     // Tự động kiểm tra bản cập nhật mới trong nền
     _checkUpdateOnStartup();
   }
@@ -54,8 +51,6 @@ class _HomeScreenState extends State<HomeScreen> with WindowListener {
   @override
   void dispose() {
     windowManager.removeListener(this);
-    // Reset preventClose khi rời HomeScreen (ví dụ: đăng xuất)
-    // Không await vì dispose() không thể async
     windowManager.setPreventClose(false);
     super.dispose();
   }
@@ -78,11 +73,11 @@ class _HomeScreenState extends State<HomeScreen> with WindowListener {
       barrierDismissible: false,
       builder: (context) => AlertDialog(
         title: const Text('Xác nhận thoát'),
-        content: const Text('Bạn có muốn sao lưu dữ liệu lên Google Drive trước khi thoát không?'),
+        content: const Text('Bạn có muốn tạo bản sao lưu dữ liệu vào máy trước khi thoát không?'),
         actions: [
           TextButton(
             onPressed: () async {
-              Navigator.pop(context); // close dialog
+              Navigator.pop(context);
               await windowManager.setPreventClose(false);
               windowManager.removeListener(this);
               await windowManager.destroy();
@@ -92,7 +87,7 @@ class _HomeScreenState extends State<HomeScreen> with WindowListener {
           ),
           ElevatedButton(
             onPressed: () async {
-              Navigator.pop(context); // close dialog
+              Navigator.pop(context);
               _performBackupAndExit();
             },
             child: const Text('Có, sao lưu và thoát'),
@@ -103,108 +98,6 @@ class _HomeScreenState extends State<HomeScreen> with WindowListener {
   }
 
   Future<void> _performBackupAndExit() async {
-    final drive = GoogleDriveService.instance;
-
-    // Check auth, try restore session first
-    if (!drive.isAuthenticated) {
-      await drive.restoreSession();
-    }
-
-    if (!drive.isAuthenticated) {
-      bool authed = false;
-      String? authError;
-      try {
-        authed = await drive.authenticate();
-      } catch (e) {
-        authError = e.toString();
-      }
-
-      if (!authed) {
-        if (mounted) {
-          final shouldExit = await showDialog<bool>(
-            context: context,
-            barrierDismissible: false,
-            builder: (ctx) => AlertDialog(
-              title: const Text('Không thể kết nối Google Drive'),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  if (authError != null) ...[
-                    const Text('Chi tiết lỗi:', style: TextStyle(fontWeight: FontWeight.bold)),
-                    const SizedBox(height: 8),
-                    Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: Colors.red.shade50,
-                        borderRadius: BorderRadius.circular(4),
-                        border: Border.all(color: Colors.red.shade200),
-                      ),
-                      child: Text(
-                        authError,
-                        style: TextStyle(fontSize: 12, color: Colors.red.shade800),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                  ],
-                  if (authError != null && authError.contains('suspended')) ...[
-                    Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: Colors.orange.shade50,
-                        borderRadius: BorderRadius.circular(4),
-                        border: Border.all(color: Colors.orange.shade200),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              Icon(Icons.warning_amber, color: Colors.orange.shade700, size: 16),
-                              const SizedBox(width: 4),
-                              Text('Project Google Cloud bị tạm đình chỉ',
-                                  style: TextStyle(fontWeight: FontWeight.bold, color: Colors.orange.shade800, fontSize: 13)),
-                            ],
-                          ),
-                          const SizedBox(height: 4),
-                          const Text(
-                            'Hướng dẫn khắc phục:\n'
-                            '1. Vào console.cloud.google.com\n'
-                            '2. Kiểm tra Billing Account đã kích hoạt chưa\n'
-                            '3. Hoặc tạo Project mới và cấu hình lại',
-                            style: TextStyle(fontSize: 12),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                  ] else const Text('Bạn có thể thoát mà không sao lưu, hoặc ở lại để kiểm tra cấu hình.'),
-                ],
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(ctx, false),
-                  child: const Text('Ở lại kiểm tra'),
-                ),
-                ElevatedButton(
-                  style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-                  onPressed: () => Navigator.pop(ctx, true),
-                  child: const Text('Thoát không sao lưu', style: TextStyle(color: Colors.white)),
-                ),
-              ],
-            ),
-          ) ?? false;
-
-          if (!shouldExit) return; // stay in app
-        }
-        await windowManager.setPreventClose(false);
-        windowManager.removeListener(this);
-        await windowManager.destroy();
-        exit(0);
-      }
-    }
-
-    // Show loading dialog
     if (!mounted) return;
     showDialog(
       context: context,
@@ -215,24 +108,19 @@ class _HomeScreenState extends State<HomeScreen> with WindowListener {
           children: [
             CircularProgressIndicator(),
             SizedBox(height: 16),
-            Text('Đang sao lưu dữ liệu...'),
+            Text('Đang tạo bản sao lưu dữ liệu...'),
           ],
         ),
       ),
     );
 
     try {
-      final dbPath = await getDatabasesPath();
-      final file = File('$dbPath/vi_desktop_app.db');
-      
-      if (await file.exists()) {
-        await drive.uploadBackup(file);
-      }
+      await DatabaseHelper.instance.createBackupFile();
 
       if (mounted) {
         Navigator.pop(context); // Close loading
         
-        // Show success and wait 2s
+        // Show success briefly
         showDialog(
           context: context,
           barrierDismissible: false,
@@ -242,14 +130,14 @@ class _HomeScreenState extends State<HomeScreen> with WindowListener {
               children: [
                 Icon(Icons.check_circle, color: Colors.green, size: 48),
                 SizedBox(height: 16),
-                Text('Sao lưu thành công!'),
-                Text('Ứng dụng sẽ đóng sau 2 giây...'),
+                Text('Sao lưu dữ liệu thành công!'),
+                Text('Ứng dụng đang đóng...'),
               ],
             ),
           ),
         );
         
-        await Future.delayed(const Duration(seconds: 2));
+        await Future.delayed(const Duration(milliseconds: 1000));
         await windowManager.setPreventClose(false);
         windowManager.removeListener(this);
         await windowManager.destroy();
@@ -262,7 +150,7 @@ class _HomeScreenState extends State<HomeScreen> with WindowListener {
           SnackBar(content: Text('Lỗi sao lưu: $e')),
         );
       }
-      await Future.delayed(const Duration(seconds: 3));
+      await Future.delayed(const Duration(seconds: 1));
       await windowManager.setPreventClose(false);
       windowManager.removeListener(this);
       await windowManager.destroy();

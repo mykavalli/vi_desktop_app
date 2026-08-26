@@ -57,13 +57,12 @@ class GuideScreen extends StatelessWidget {
             ),
             _buildSection(
               icon: Icons.backup,
-              title: '4. Sao lưu dữ liệu (Google Drive)',
+              title: '4. Sao lưu & Khôi phục dữ liệu',
               content: [
-                '• Đăng nhập 1 lần duy nhất: Vào "Thiết lập tài khoản" -> Nhấn "Đăng nhập với Google" để liên kết tài khoản Drive của bạn.',
-                '• Ứng dụng tự động lưu phiên đăng nhập, bạn không cần phải đăng nhập lại mỗi khi mở hay tắt ứng dụng.',
-                '• Thư mục sao lưu: Dữ liệu được lưu trữ an toàn trong thư mục "Vi Desktop App Backups" trên Google Drive của bạn.',
-                '• Sao lưu tự động: Hệ thống tự động nhắc sao lưu khi bạn tắt ứng dụng.',
-                '• Khôi phục dữ liệu: Bạn có thể xem danh sách các bản sao lưu cũ và khôi phục lại bất cứ lúc nào.',
+                '• Sao lưu tự động vào máy: Bạn có thể chọn thư mục lưu trữ mong muốn trong phần "Thiết lập tài khoản".',
+                '• Mỗi lần tạo sao lưu, ứng dụng sẽ tạo 1 file .db gắn ngày giờ cụ thể (ví dụ: vi_backup_20260826_180000.db).',
+                '• Sao lưu khi thoát: Khi tắt ứng dụng, bạn có thể chọn "Có, sao lưu và thoát" để lưu lại dữ liệu mới nhất.',
+                '• Khôi phục dữ liệu: Bạn có thể chọn bất kỳ bản sao lưu cũ nào trong danh sách hoặc nạp file .db từ máy để khôi phục nhanh.',
               ],
             ),
             _buildSection(
