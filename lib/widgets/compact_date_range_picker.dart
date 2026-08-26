@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 class CompactDateRangePicker extends StatelessWidget {
@@ -42,7 +42,7 @@ class CompactDateRangePicker extends StatelessWidget {
   Future<void> _openCustomPicker(BuildContext context) async {
     final picked = await showDialog<DateTimeRange>(
       context: context,
-      barrierDismissible: true,
+      barrierDismissible: false,
       builder: (ctx) => _AutoApplyDateRangePickerDialog(
         initialStartDate: startDate,
         initialEndDate: endDate,

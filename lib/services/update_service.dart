@@ -41,8 +41,8 @@ class UpdateService {
   }
 
   // Thông tin phiên bản mặc định của App
-  String _currentVersion = '1.0.2';
-  int _currentBuildNumber = 3;
+  String _currentVersion = '1.0.3';
+  int _currentBuildNumber = 4;
 
   String get currentAppVersion => _currentVersion;
   int get currentAppBuildNumber => _currentBuildNumber;
@@ -253,108 +253,111 @@ del "%~f0" & exit
 
     await showDialog(
       context: context,
-      barrierDismissible: !updateInfo.mandatory && !isDownloading,
+      barrierDismissible: false,
       builder: (ctx) {
         return StatefulBuilder(
           builder: (context, setDialogState) {
-            return AlertDialog(
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              title: Row(
-                children: [
-                  const Icon(Icons.system_update, color: Colors.blue, size: 28),
-                  const SizedBox(width: 10),
-                  Text('Đã có bản cập nhật mới (v${updateInfo.version})'),
-                ],
-              ),
-              content: SizedBox(
-                width: 450,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
+            return PopScope(
+              canPop: !isDownloading,
+              child: AlertDialog(
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                title: Row(
                   children: [
-                    Text(
-                      'Phiên bản hiện tại: v$currentVersion\nPhiên bản mới nhất: v${updateInfo.version} (${updateInfo.releaseDate})',
-                      style: const TextStyle(fontWeight: FontWeight.w600),
-                    ),
-                    const SizedBox(height: 12),
-                    const Text('Chi tiết thay đổi:', style: TextStyle(fontWeight: FontWeight.bold)),
-                    const SizedBox(height: 6),
-                    Container(
-                      width: double.infinity,
-                      constraints: const BoxConstraints(maxHeight: 150),
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        color: Colors.grey.shade100,
-                        borderRadius: BorderRadius.circular(6),
-                        border: Border.all(color: Colors.grey.shade300),
-                      ),
-                      child: SingleChildScrollView(
-                        child: Text(
-                          updateInfo.changelog.isNotEmpty
-                              ? updateInfo.changelog
-                              : 'Cải tiến hiệu năng và sửa lỗi.',
-                          style: const TextStyle(fontSize: 13),
-                        ),
-                      ),
-                    ),
-                    if (isDownloading) ...[
-                      const SizedBox(height: 16),
-                      LinearProgressIndicator(value: progress > 0 ? progress : null),
-                      const SizedBox(height: 8),
-                      Text(
-                        statusMessage,
-                        style: const TextStyle(fontSize: 12, color: Colors.blueGrey),
-                      ),
-                    ],
-                    if (errorMessage != null) ...[
-                      const SizedBox(height: 12),
-                      Text(
-                        'Lỗi: $errorMessage',
-                        style: const TextStyle(color: Colors.red, fontSize: 12),
-                      ),
-                    ],
+                    const Icon(Icons.system_update, color: Colors.blue, size: 28),
+                    const SizedBox(width: 10),
+                    Text('Đã có bản cập nhật mới (v${updateInfo.version})'),
                   ],
                 ),
-              ),
-              actions: [
-                if (!updateInfo.mandatory && !isDownloading)
-                  TextButton(
-                    onPressed: () => Navigator.pop(ctx),
-                    child: const Text('Để sau'),
+                content: SizedBox(
+                  width: 450,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Phiên bản hiện tại: v$currentVersion\nPhiên bản mới nhất: v${updateInfo.version} (${updateInfo.releaseDate})',
+                        style: const TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                      const SizedBox(height: 12),
+                      const Text('Chi tiết thay đổi:', style: TextStyle(fontWeight: FontWeight.bold)),
+                      const SizedBox(height: 6),
+                      Container(
+                        width: double.infinity,
+                        constraints: const BoxConstraints(maxHeight: 150),
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: Colors.grey.shade100,
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border.all(color: Colors.grey.shade300),
+                        ),
+                        child: SingleChildScrollView(
+                          child: Text(
+                            updateInfo.changelog.isNotEmpty
+                                ? updateInfo.changelog
+                                : 'Cải tiến hiệu năng và sửa lỗi.',
+                            style: const TextStyle(fontSize: 13),
+                          ),
+                        ),
+                      ),
+                      if (isDownloading) ...[
+                        const SizedBox(height: 16),
+                        LinearProgressIndicator(value: progress > 0 ? progress : null),
+                        const SizedBox(height: 8),
+                        Text(
+                          statusMessage,
+                          style: const TextStyle(fontSize: 12, color: Colors.blueGrey),
+                        ),
+                      ],
+                      if (errorMessage != null) ...[
+                        const SizedBox(height: 12),
+                        Text(
+                          'Lỗi: $errorMessage',
+                          style: const TextStyle(color: Colors.red, fontSize: 12),
+                        ),
+                      ],
+                    ],
                   ),
-                if (!isDownloading)
-                  ElevatedButton.icon(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.blue,
-                      foregroundColor: Colors.white,
+                ),
+                actions: [
+                  if (!updateInfo.mandatory && !isDownloading)
+                    TextButton(
+                      onPressed: () => Navigator.pop(ctx),
+                      child: const Text('Để sau'),
                     ),
-                    icon: const Icon(Icons.download),
-                    label: const Text('Cập nhật ngay'),
-                    onPressed: () async {
-                      setDialogState(() {
-                        isDownloading = true;
-                        errorMessage = null;
-                      });
-
-                      try {
-                        await downloadAndApplyUpdate(
-                          updateInfo: updateInfo,
-                          onProgress: (p, msg) {
-                            setDialogState(() {
-                              progress = p;
-                              statusMessage = msg;
-                            });
-                          },
-                        );
-                      } catch (err) {
+                  if (!isDownloading)
+                    ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.blue,
+                        foregroundColor: Colors.white,
+                      ),
+                      icon: const Icon(Icons.download),
+                      label: const Text('Cập nhật ngay'),
+                      onPressed: () async {
                         setDialogState(() {
-                          isDownloading = false;
-                          errorMessage = err.toString();
+                          isDownloading = true;
+                          errorMessage = null;
                         });
-                      }
-                    },
-                  ),
-              ],
+
+                        try {
+                          await downloadAndApplyUpdate(
+                            updateInfo: updateInfo,
+                            onProgress: (p, msg) {
+                              setDialogState(() {
+                                progress = p;
+                                statusMessage = msg;
+                              });
+                            },
+                          );
+                        } catch (err) {
+                          setDialogState(() {
+                            isDownloading = false;
+                            errorMessage = err.toString();
+                          });
+                        }
+                      },
+                    ),
+                ],
+              ),
             );
           },
         );

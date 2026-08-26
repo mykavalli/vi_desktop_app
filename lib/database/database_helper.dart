@@ -817,6 +817,29 @@ class DatabaseHelper {
     }
   }
 
+  /// Phân tích thời gian tạo bản sao lưu từ tên file hoặc thuộc tính file
+  static DateTime getBackupFileTimestamp(File file) {
+    try {
+      final name = file.uri.pathSegments.last;
+      final regex = RegExp(r'vi_backup_(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})\.db');
+      final match = regex.firstMatch(name);
+      if (match != null) {
+        final y = int.parse(match.group(1)!);
+        final m = int.parse(match.group(2)!);
+        final d = int.parse(match.group(3)!);
+        final h = int.parse(match.group(4)!);
+        final min = int.parse(match.group(5)!);
+        final s = int.parse(match.group(6)!);
+        return DateTime(y, m, d, h, min, s);
+      }
+    } catch (_) {}
+    try {
+      return file.statSync().modified;
+    } catch (_) {
+      return DateTime.now();
+    }
+  }
+
   /// Tạo bản sao lưu ngay vào thư mục sao lưu
   Future<File?> createBackupFile({String? customFolderPath}) async {
     try {
@@ -830,11 +853,16 @@ class DatabaseHelper {
       final dbFile = File(dbPath);
       if (!await dbFile.exists()) return null;
 
-      final timestamp = DateFormat('yyyyMMdd_HHmmss').format(DateTime.now());
+      final now = DateTime.now();
+      final timestamp = DateFormat('yyyyMMdd_HHmmss').format(now);
       final backupFileName = 'vi_backup_$timestamp.db';
       final backupFilePath = join(folder.path, backupFileName);
 
-      return await dbFile.copy(backupFilePath);
+      final copied = await dbFile.copy(backupFilePath);
+      try {
+        await copied.setLastModified(now);
+      } catch (_) {}
+      return copied;
     } catch (e) {
       print('Backup error: $e');
       return null;
@@ -855,8 +883,8 @@ class DatabaseHelper {
           .toList();
 
       files.sort((a, b) {
-        final aTime = a.statSync().modified;
-        final bTime = b.statSync().modified;
+        final aTime = getBackupFileTimestamp(a);
+        final bTime = getBackupFileTimestamp(b);
         return bTime.compareTo(aTime);
       });
 

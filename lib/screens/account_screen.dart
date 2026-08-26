@@ -720,7 +720,8 @@ class _AccountScreenState extends State<AccountScreen> {
                         final file = _backupFiles[index];
                         final name = file.uri.pathSegments.last;
                         final stat = file.statSync();
-                        final dateStr = DateFormat('dd/MM/yyyy HH:mm:ss').format(stat.modified);
+                        final backupTime = DatabaseHelper.getBackupFileTimestamp(file);
+                        final dateStr = DateFormat('dd/MM/yyyy HH:mm:ss').format(backupTime);
                         final sizeKb = (stat.size / 1024).toStringAsFixed(1);
 
                         return ListTile(
