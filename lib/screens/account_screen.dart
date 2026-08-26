@@ -1,4 +1,4 @@
-﻿import 'dart:io';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:intl/intl.dart';
@@ -44,6 +44,7 @@ class _AccountScreenState extends State<AccountScreen> {
   }
 
   Future<void> _initData() async {
+    await _updateService.loadInstalledVersion();
     final folderPath = await _db.getBackupDirectoryPath();
     final files = await _db.listLocalBackupFiles();
     if (mounted) {
@@ -379,7 +380,7 @@ class _AccountScreenState extends State<AccountScreen> {
                           borderRadius: BorderRadius.circular(12),
                         ),
                         child: Text(
-                          'v${UpdateService.currentVersion}',
+                          'v${_updateService.currentAppVersion}',
                           style: TextStyle(
                             fontSize: 12,
                             fontWeight: FontWeight.bold,

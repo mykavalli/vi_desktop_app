@@ -36,19 +36,45 @@ class UpdateInfo {
 
 class UpdateService {
   static final UpdateService instance = UpdateService._();
-  UpdateService._();
+  UpdateService._() {
+    loadInstalledVersion();
+  }
 
-  // Thông tin phiên bản hiện tại của App
-  static const String currentVersion = '1.0.0';
-  static const int currentBuildNumber = 1;
+  // Thông tin phiên bản mặc định của App
+  String _currentVersion = '1.0.1';
+  int _currentBuildNumber = 2;
+
+  String get currentAppVersion => _currentVersion;
+  int get currentAppBuildNumber => _currentBuildNumber;
+  static String get currentVersion => instance._currentVersion;
+  static int get currentBuildNumber => instance._currentBuildNumber;
 
   // Endpoint mặc định kiểm tra update từ nhánh Git (raw GitHub)
   static const String defaultUpdateUrl =
       'https://raw.githubusercontent.com/mykavalli/vi_desktop_app/updates/version.json';
 
+  /// Nạp phiên bản cài đặt từ file app_version.json (nếu có)
+  Future<void> loadInstalledVersion() async {
+    try {
+      final appExecutable = Platform.resolvedExecutable;
+      final appDir = File(appExecutable).parent.path;
+      final versionFile = File('$appDir\\app_version.json');
+      if (await versionFile.exists()) {
+        final content = await versionFile.readAsString();
+        final map = jsonDecode(content) as Map<String, dynamic>;
+        if (map.containsKey('version')) {
+          _currentVersion = map['version'].toString();
+        }
+        if (map.containsKey('build_number')) {
+          _currentBuildNumber = int.tryParse(map['build_number'].toString()) ?? _currentBuildNumber;
+        }
+      }
+    } catch (_) {}
+  }
+
   /// So sánh phiên bản remote với phiên bản hiện tại
   bool _isNewer(String remoteVer, int remoteBuild) {
-    if (remoteBuild > currentBuildNumber) return true;
+    if (remoteBuild > _currentBuildNumber) return true;
 
     List<int> parse(String v) {
       return v
@@ -59,7 +85,7 @@ class UpdateService {
     }
 
     final r = parse(remoteVer);
-    final c = parse(currentVersion);
+    final c = parse(_currentVersion);
 
     for (int i = 0; i < 3; i++) {
       final rv = i < r.length ? r[i] : 0;
@@ -73,6 +99,7 @@ class UpdateService {
 
   /// Kiểm tra có bản cập nhật mới trên Git hay không
   Future<UpdateInfo?> checkForUpdates({String? customUrl}) async {
+    await loadInstalledVersion();
     final url = customUrl ?? defaultUpdateUrl;
     final uri = Uri.parse(url);
 
@@ -172,16 +199,31 @@ class UpdateService {
         throw Exception('Giải nén thất bại: ${unzipResult.stderr}');
       }
 
+      // Ghi file app_version.json với phiên bản mới
+      final newVersionMap = {
+        'version': updateInfo.version,
+        'build_number': updateInfo.buildNumber,
+        'release_date': updateInfo.releaseDate,
+        'updated_at': DateTime.now().toIso8601String(),
+      };
+      final versionInExtract = File('${extractDir.path}\\app_version.json');
+      await versionInExtract.writeAsString(jsonEncode(newVersionMap));
+
       // Lấy thư mục cài đặt hiện tại của app
       final appExecutable = Platform.resolvedExecutable;
       final appDir = File(appExecutable).parent.path;
+
+      try {
+        final versionInApp = File('$appDir\\app_version.json');
+        await versionInApp.writeAsString(jsonEncode(newVersionMap));
+      } catch (_) {}
 
       // Tạo file script update.bat để chờ app thoát rồi ghi đè
       final batFile = File('${tempDir.path}\\vi_apply_update.bat');
       final batContent = '''
 @echo off
 timeout /t 2 /nobreak > nul
-xcopy "${extractDir.path}\\*" "$appDir\\" /E /Y /I > nul
+xcopy "${extractDir.path}\\*" "$appDir\\" /E /Y /I /C > nul
 start "" "$appExecutable"
 del "%~f0" & exit
 ''';
