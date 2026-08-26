@@ -180,7 +180,9 @@ class _TimekeepingScreenState extends State<TimekeepingScreen> {
         bottomBorder: xls.Border(borderStyle: xls.BorderStyle.Thin),
       );
 
-      final bodyStyle = xls.CellStyle(
+      final nameCellStyle = xls.CellStyle(
+        horizontalAlign: xls.HorizontalAlign.Left,
+        verticalAlign: xls.VerticalAlign.Center,
         leftBorder: xls.Border(borderStyle: xls.BorderStyle.Thin),
         rightBorder: xls.Border(borderStyle: xls.BorderStyle.Thin),
         topBorder: xls.Border(borderStyle: xls.BorderStyle.Thin),
@@ -312,18 +314,16 @@ class _TimekeepingScreenState extends State<TimekeepingScreen> {
         if (_selectedFilterTpId != null) {
           pointsToDisplay = _transactionPoints.where((tp) => tp.id == _selectedFilterTpId).toList();
         } else {
-          final userTpMap = _dataMap[pId];
-          if (userTpMap != null && userTpMap.isNotEmpty) {
-            pointsToDisplay = _transactionPoints.where((tp) => userTpMap.containsKey(tp.id)).toList();
-          }
-          if (pointsToDisplay.isEmpty) {
-            pointsToDisplay = _transactionPoints;
-          }
+          pointsToDisplay = _transactionPoints;
         }
 
         if (pointsToDisplay.isEmpty) {
           pointsToDisplay = [TransactionPoint(id: 0, name: 'Mặc định', createdAt: DateTime.now())];
         }
+
+        final startRow = rowIndex;
+        final count = pointsToDisplay.length;
+        final endRow = startRow + count - 1;
 
         for (var tp in pointsToDisplay) {
           sheet.cell(xls.CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: rowIndex))
@@ -332,7 +332,7 @@ class _TimekeepingScreenState extends State<TimekeepingScreen> {
 
           sheet.cell(xls.CellIndex.indexByColumnRow(columnIndex: 1, rowIndex: rowIndex))
             ..value = xls.TextCellValue(pName)
-            ..cellStyle = bodyStyle;
+            ..cellStyle = nameCellStyle;
 
           sheet.cell(xls.CellIndex.indexByColumnRow(columnIndex: 2, rowIndex: rowIndex))
             ..value = xls.TextCellValue(pRole)
@@ -340,7 +340,7 @@ class _TimekeepingScreenState extends State<TimekeepingScreen> {
 
           sheet.cell(xls.CellIndex.indexByColumnRow(columnIndex: 3, rowIndex: rowIndex))
             ..value = xls.TextCellValue(tp.name)
-            ..cellStyle = bodyStyle;
+            ..cellStyle = nameCellStyle;
 
           int rowTx = 0;
           int rowPx = 0;
@@ -410,8 +410,23 @@ class _TimekeepingScreenState extends State<TimekeepingScreen> {
             ..cellStyle = centerBodyStyle;
 
           rowIndex++;
-          stt++;
         }
+
+        if (count > 1) {
+          sheet.merge(
+            xls.CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: startRow),
+            xls.CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: endRow),
+          );
+          sheet.merge(
+            xls.CellIndex.indexByColumnRow(columnIndex: 1, rowIndex: startRow),
+            xls.CellIndex.indexByColumnRow(columnIndex: 1, rowIndex: endRow),
+          );
+          sheet.merge(
+            xls.CellIndex.indexByColumnRow(columnIndex: 2, rowIndex: startRow),
+            xls.CellIndex.indexByColumnRow(columnIndex: 2, rowIndex: endRow),
+          );
+        }
+        stt++;
       }
 
       // Grand Total Row
