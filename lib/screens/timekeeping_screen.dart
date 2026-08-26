@@ -481,10 +481,17 @@ class _TimekeepingScreenState extends State<TimekeepingScreen> {
         await file.writeAsBytes(fileBytes);
 
         if (mounted) {
+          final filePath = outputFile;
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('Xuất file Excel thành công: $outputFile'),
+              content: Text('Xuất file Excel thành công: $filePath'),
               backgroundColor: Colors.green,
+              duration: const Duration(seconds: 6),
+              action: SnackBarAction(
+                label: 'Mở file',
+                textColor: Colors.white,
+                onPressed: () => _openFile(filePath),
+              ),
             ),
           );
         }
@@ -499,6 +506,18 @@ class _TimekeepingScreenState extends State<TimekeepingScreen> {
         );
       }
     }
+  }
+
+  Future<void> _openFile(String path) async {
+    try {
+      if (Platform.isWindows) {
+        await Process.run('cmd', ['/c', 'start', '""', path]);
+      } else if (Platform.isMacOS) {
+        await Process.run('open', [path]);
+      } else {
+        await Process.run('xdg-open', [path]);
+      }
+    } catch (_) {}
   }
 
   List<DateTime> get _daysInRange {

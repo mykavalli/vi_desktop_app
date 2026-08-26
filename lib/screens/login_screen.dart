@@ -11,6 +11,7 @@ class LoginScreen extends StatefulWidget {
 
 class _LoginScreenState extends State<LoginScreen> {
   final _passwordController = TextEditingController();
+  final _passwordFocusNode = FocusNode();
   final _authService = AuthService.instance;
   bool _isLoading = false;
   String? _errorMessage;
@@ -19,6 +20,15 @@ class _LoginScreenState extends State<LoginScreen> {
   void initState() {
     super.initState();
     _initializeApp();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _passwordFocusNode.requestFocus();
+      Future.delayed(const Duration(milliseconds: 150), () {
+        if (mounted) _passwordFocusNode.requestFocus();
+      });
+      Future.delayed(const Duration(milliseconds: 400), () {
+        if (mounted) _passwordFocusNode.requestFocus();
+      });
+    });
   }
 
   Future<void> _initializeApp() async {
@@ -59,6 +69,7 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   void dispose() {
     _passwordController.dispose();
+    _passwordFocusNode.dispose();
     super.dispose();
   }
 
@@ -94,6 +105,7 @@ class _LoginScreenState extends State<LoginScreen> {
               const SizedBox(height: 48),
               TextField(
                 controller: _passwordController,
+                focusNode: _passwordFocusNode,
                 autofocus: true,
                 obscureText: true,
                 decoration: InputDecoration(
