@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:excel/excel.dart' as xls;
+import 'package:file_picker/file_picker.dart';
+import 'dart:io';
 import '../database/database_helper.dart';
 import '../models/personnel.dart';
 import '../models/transaction_point.dart';
@@ -141,6 +144,360 @@ class _TimekeepingScreenState extends State<TimekeepingScreen> {
       }
     } finally {
       setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _exportToExcel() async {
+    try {
+      final days = _daysInRange;
+      final personnelToExport = _filteredPersonnelList;
+
+      if (personnelToExport.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Không có dữ liệu nhân viên nào để xuất Excel.'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+        return;
+      }
+
+      final excel = xls.Excel.createExcel();
+      final String defaultSheet = excel.getDefaultSheet() ?? 'Sheet1';
+      excel.rename(defaultSheet, 'Bang cham cong');
+      final sheet = excel['Bang cham cong'];
+
+      // CellStyles
+      final headerStyle = xls.CellStyle(
+        bold: true,
+        backgroundColorHex: xls.ExcelColor.blue,
+        fontColorHex: xls.ExcelColor.white,
+        horizontalAlign: xls.HorizontalAlign.Center,
+        verticalAlign: xls.VerticalAlign.Center,
+        leftBorder: xls.Border(borderStyle: xls.BorderStyle.Thin),
+        rightBorder: xls.Border(borderStyle: xls.BorderStyle.Thin),
+        topBorder: xls.Border(borderStyle: xls.BorderStyle.Thin),
+        bottomBorder: xls.Border(borderStyle: xls.BorderStyle.Thin),
+      );
+
+      final bodyStyle = xls.CellStyle(
+        leftBorder: xls.Border(borderStyle: xls.BorderStyle.Thin),
+        rightBorder: xls.Border(borderStyle: xls.BorderStyle.Thin),
+        topBorder: xls.Border(borderStyle: xls.BorderStyle.Thin),
+        bottomBorder: xls.Border(borderStyle: xls.BorderStyle.Thin),
+      );
+
+      final centerBodyStyle = xls.CellStyle(
+        horizontalAlign: xls.HorizontalAlign.Center,
+        verticalAlign: xls.VerticalAlign.Center,
+        leftBorder: xls.Border(borderStyle: xls.BorderStyle.Thin),
+        rightBorder: xls.Border(borderStyle: xls.BorderStyle.Thin),
+        topBorder: xls.Border(borderStyle: xls.BorderStyle.Thin),
+        bottomBorder: xls.Border(borderStyle: xls.BorderStyle.Thin),
+      );
+
+      final txStyle = xls.CellStyle(
+        bold: true,
+        backgroundColorHex: xls.ExcelColor.fromHexString('#BBDEFB'),
+        fontColorHex: xls.ExcelColor.fromHexString('#0D47A1'),
+        horizontalAlign: xls.HorizontalAlign.Center,
+        verticalAlign: xls.VerticalAlign.Center,
+        leftBorder: xls.Border(borderStyle: xls.BorderStyle.Thin),
+        rightBorder: xls.Border(borderStyle: xls.BorderStyle.Thin),
+        topBorder: xls.Border(borderStyle: xls.BorderStyle.Thin),
+        bottomBorder: xls.Border(borderStyle: xls.BorderStyle.Thin),
+      );
+
+      final pxStyle = xls.CellStyle(
+        bold: true,
+        backgroundColorHex: xls.ExcelColor.fromHexString('#B2EBF2'),
+        fontColorHex: xls.ExcelColor.fromHexString('#006064'),
+        horizontalAlign: xls.HorizontalAlign.Center,
+        verticalAlign: xls.VerticalAlign.Center,
+        leftBorder: xls.Border(borderStyle: xls.BorderStyle.Thin),
+        rightBorder: xls.Border(borderStyle: xls.BorderStyle.Thin),
+        topBorder: xls.Border(borderStyle: xls.BorderStyle.Thin),
+        bottomBorder: xls.Border(borderStyle: xls.BorderStyle.Thin),
+      );
+
+      final npStyle = xls.CellStyle(
+        bold: true,
+        backgroundColorHex: xls.ExcelColor.fromHexString('#FFE0B2'),
+        fontColorHex: xls.ExcelColor.fromHexString('#E65100'),
+        horizontalAlign: xls.HorizontalAlign.Center,
+        verticalAlign: xls.VerticalAlign.Center,
+        leftBorder: xls.Border(borderStyle: xls.BorderStyle.Thin),
+        rightBorder: xls.Border(borderStyle: xls.BorderStyle.Thin),
+        topBorder: xls.Border(borderStyle: xls.BorderStyle.Thin),
+        bottomBorder: xls.Border(borderStyle: xls.BorderStyle.Thin),
+      );
+
+      final kpStyle = xls.CellStyle(
+        bold: true,
+        backgroundColorHex: xls.ExcelColor.fromHexString('#FFCDD2'),
+        fontColorHex: xls.ExcelColor.fromHexString('#B71C1C'),
+        horizontalAlign: xls.HorizontalAlign.Center,
+        verticalAlign: xls.VerticalAlign.Center,
+        leftBorder: xls.Border(borderStyle: xls.BorderStyle.Thin),
+        rightBorder: xls.Border(borderStyle: xls.BorderStyle.Thin),
+        topBorder: xls.Border(borderStyle: xls.BorderStyle.Thin),
+        bottomBorder: xls.Border(borderStyle: xls.BorderStyle.Thin),
+      );
+
+      final totalRowStyle = xls.CellStyle(
+        bold: true,
+        backgroundColorHex: xls.ExcelColor.fromHexString('#EEEEEE'),
+        horizontalAlign: xls.HorizontalAlign.Center,
+        verticalAlign: xls.VerticalAlign.Center,
+        leftBorder: xls.Border(borderStyle: xls.BorderStyle.Thin),
+        rightBorder: xls.Border(borderStyle: xls.BorderStyle.Thin),
+        topBorder: xls.Border(borderStyle: xls.BorderStyle.Medium),
+        bottomBorder: xls.Border(borderStyle: xls.BorderStyle.Medium),
+      );
+
+      final totalRowLeftStyle = xls.CellStyle(
+        bold: true,
+        backgroundColorHex: xls.ExcelColor.fromHexString('#EEEEEE'),
+        horizontalAlign: xls.HorizontalAlign.Left,
+        verticalAlign: xls.VerticalAlign.Center,
+        leftBorder: xls.Border(borderStyle: xls.BorderStyle.Thin),
+        rightBorder: xls.Border(borderStyle: xls.BorderStyle.Thin),
+        topBorder: xls.Border(borderStyle: xls.BorderStyle.Medium),
+        bottomBorder: xls.Border(borderStyle: xls.BorderStyle.Medium),
+      );
+
+      // Headers
+      final headers = ['STT', 'Tên nhân viên', 'Vai trò', 'Điểm GD'];
+      final colWidths = [6.0, 24.0, 14.0, 18.0];
+      final weekdayLabels = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'];
+
+      for (var d in days) {
+        final dayStr = DateFormat('dd/MM').format(d);
+        final wStr = weekdayLabels[d.weekday - 1];
+        headers.add('$dayStr\n$wStr');
+        colWidths.add(7.0);
+      }
+
+      headers.addAll(['Tổng TX', 'Tổng PX', 'Tổng NP', 'Tổng KP', 'Tổng Ngày Công']);
+      colWidths.addAll([10.0, 10.0, 10.0, 10.0, 15.0]);
+
+      for (int i = 0; i < headers.length; i++) {
+        final cell = sheet.cell(xls.CellIndex.indexByColumnRow(columnIndex: i, rowIndex: 0));
+        cell.value = xls.TextCellValue(headers[i]);
+        cell.cellStyle = headerStyle;
+        sheet.setColumnWidth(i, colWidths[i]);
+      }
+
+      int rowIndex = 1;
+      int stt = 1;
+
+      int grandTotalTx = 0;
+      int grandTotalPx = 0;
+      int grandTotalNp = 0;
+      int grandTotalKp = 0;
+      int grandTotalWork = 0;
+      Map<int, int> grandDailyTx = {};
+      Map<int, int> grandDailyPx = {};
+      Map<int, int> grandDailyNp = {};
+      Map<int, int> grandDailyKp = {};
+
+      for (var personnel in personnelToExport) {
+        final pId = personnel.id!;
+        final pName = personnel.name;
+        final pRole = personnel.role == 'TX'
+            ? 'Tài xế'
+            : (personnel.role == 'PX' ? 'Phụ xe' : 'Chưa gán');
+
+        List<TransactionPoint> pointsToDisplay = [];
+        if (_selectedFilterTpId != null) {
+          pointsToDisplay = _transactionPoints.where((tp) => tp.id == _selectedFilterTpId).toList();
+        } else {
+          final userTpMap = _dataMap[pId];
+          if (userTpMap != null && userTpMap.isNotEmpty) {
+            pointsToDisplay = _transactionPoints.where((tp) => userTpMap.containsKey(tp.id)).toList();
+          }
+          if (pointsToDisplay.isEmpty) {
+            pointsToDisplay = _transactionPoints;
+          }
+        }
+
+        if (pointsToDisplay.isEmpty) {
+          pointsToDisplay = [TransactionPoint(id: 0, name: 'Mặc định', createdAt: DateTime.now())];
+        }
+
+        for (var tp in pointsToDisplay) {
+          sheet.cell(xls.CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: rowIndex))
+            ..value = xls.TextCellValue('$stt')
+            ..cellStyle = centerBodyStyle;
+
+          sheet.cell(xls.CellIndex.indexByColumnRow(columnIndex: 1, rowIndex: rowIndex))
+            ..value = xls.TextCellValue(pName)
+            ..cellStyle = bodyStyle;
+
+          sheet.cell(xls.CellIndex.indexByColumnRow(columnIndex: 2, rowIndex: rowIndex))
+            ..value = xls.TextCellValue(pRole)
+            ..cellStyle = centerBodyStyle;
+
+          sheet.cell(xls.CellIndex.indexByColumnRow(columnIndex: 3, rowIndex: rowIndex))
+            ..value = xls.TextCellValue(tp.name)
+            ..cellStyle = bodyStyle;
+
+          int rowTx = 0;
+          int rowPx = 0;
+          int rowNp = 0;
+          int rowKp = 0;
+
+          for (int dIdx = 0; dIdx < days.length; dIdx++) {
+            final day = days[dIdx];
+            final dateKey = DateFormat('yyyy-MM-dd').format(day);
+            final status = _dataMap[pId]?[tp.id]?[dateKey];
+
+            final cell = sheet.cell(xls.CellIndex.indexByColumnRow(columnIndex: 4 + dIdx, rowIndex: rowIndex));
+
+            if (status == DayStatus.tx) {
+              cell.value = xls.TextCellValue('TX');
+              cell.cellStyle = txStyle;
+              rowTx++;
+              grandDailyTx[dIdx] = (grandDailyTx[dIdx] ?? 0) + 1;
+            } else if (status == DayStatus.px) {
+              cell.value = xls.TextCellValue('PX');
+              cell.cellStyle = pxStyle;
+              rowPx++;
+              grandDailyPx[dIdx] = (grandDailyPx[dIdx] ?? 0) + 1;
+            } else if (status == DayStatus.np) {
+              cell.value = xls.TextCellValue('NP');
+              cell.cellStyle = npStyle;
+              rowNp++;
+              grandDailyNp[dIdx] = (grandDailyNp[dIdx] ?? 0) + 1;
+            } else if (status == DayStatus.kp) {
+              cell.value = xls.TextCellValue('KP');
+              cell.cellStyle = kpStyle;
+              rowKp++;
+              grandDailyKp[dIdx] = (grandDailyKp[dIdx] ?? 0) + 1;
+            } else {
+              cell.value = xls.TextCellValue('');
+              cell.cellStyle = centerBodyStyle;
+            }
+          }
+
+          final rowTotalWork = rowTx + rowPx;
+
+          grandTotalTx += rowTx;
+          grandTotalPx += rowPx;
+          grandTotalNp += rowNp;
+          grandTotalKp += rowKp;
+          grandTotalWork += rowTotalWork;
+
+          int colIdx = 4 + days.length;
+          sheet.cell(xls.CellIndex.indexByColumnRow(columnIndex: colIdx++, rowIndex: rowIndex))
+            ..value = xls.IntCellValue(rowTx)
+            ..cellStyle = centerBodyStyle;
+
+          sheet.cell(xls.CellIndex.indexByColumnRow(columnIndex: colIdx++, rowIndex: rowIndex))
+            ..value = xls.IntCellValue(rowPx)
+            ..cellStyle = centerBodyStyle;
+
+          sheet.cell(xls.CellIndex.indexByColumnRow(columnIndex: colIdx++, rowIndex: rowIndex))
+            ..value = xls.IntCellValue(rowNp)
+            ..cellStyle = centerBodyStyle;
+
+          sheet.cell(xls.CellIndex.indexByColumnRow(columnIndex: colIdx++, rowIndex: rowIndex))
+            ..value = xls.IntCellValue(rowKp)
+            ..cellStyle = centerBodyStyle;
+
+          sheet.cell(xls.CellIndex.indexByColumnRow(columnIndex: colIdx++, rowIndex: rowIndex))
+            ..value = xls.IntCellValue(rowTotalWork)
+            ..cellStyle = centerBodyStyle;
+
+          rowIndex++;
+          stt++;
+        }
+      }
+
+      // Grand Total Row
+      sheet.cell(xls.CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: rowIndex))
+        ..value = xls.TextCellValue('')
+        ..cellStyle = totalRowStyle;
+
+      sheet.cell(xls.CellIndex.indexByColumnRow(columnIndex: 1, rowIndex: rowIndex))
+        ..value = xls.TextCellValue('TỔNG CỘNG')
+        ..cellStyle = totalRowLeftStyle;
+
+      sheet.cell(xls.CellIndex.indexByColumnRow(columnIndex: 2, rowIndex: rowIndex))
+        ..value = xls.TextCellValue('')
+        ..cellStyle = totalRowStyle;
+
+      sheet.cell(xls.CellIndex.indexByColumnRow(columnIndex: 3, rowIndex: rowIndex))
+        ..value = xls.TextCellValue('')
+        ..cellStyle = totalRowStyle;
+
+      for (int dIdx = 0; dIdx < days.length; dIdx++) {
+        final totalDayWork = (grandDailyTx[dIdx] ?? 0) + (grandDailyPx[dIdx] ?? 0);
+        sheet.cell(xls.CellIndex.indexByColumnRow(columnIndex: 4 + dIdx, rowIndex: rowIndex))
+          ..value = xls.IntCellValue(totalDayWork)
+          ..cellStyle = totalRowStyle;
+      }
+
+      int sumColIdx = 4 + days.length;
+      sheet.cell(xls.CellIndex.indexByColumnRow(columnIndex: sumColIdx++, rowIndex: rowIndex))
+        ..value = xls.IntCellValue(grandTotalTx)
+        ..cellStyle = totalRowStyle;
+
+      sheet.cell(xls.CellIndex.indexByColumnRow(columnIndex: sumColIdx++, rowIndex: rowIndex))
+        ..value = xls.IntCellValue(grandTotalPx)
+        ..cellStyle = totalRowStyle;
+
+      sheet.cell(xls.CellIndex.indexByColumnRow(columnIndex: sumColIdx++, rowIndex: rowIndex))
+        ..value = xls.IntCellValue(grandTotalNp)
+        ..cellStyle = totalRowStyle;
+
+      sheet.cell(xls.CellIndex.indexByColumnRow(columnIndex: sumColIdx++, rowIndex: rowIndex))
+        ..value = xls.IntCellValue(grandTotalKp)
+        ..cellStyle = totalRowStyle;
+
+      sheet.cell(xls.CellIndex.indexByColumnRow(columnIndex: sumColIdx++, rowIndex: rowIndex))
+        ..value = xls.IntCellValue(grandTotalWork)
+        ..cellStyle = totalRowStyle;
+
+      final fileBytes = excel.save();
+      if (fileBytes == null) return;
+
+      final fromDateStr = DateFormat('yyyyMMdd').format(_startDate);
+      final toDateStr = DateFormat('yyyyMMdd').format(_endDate);
+      String defaultFileName = 'bang_cham_cong_${fromDateStr}_$toDateStr.xlsx';
+
+      String? outputFile = await FilePicker.platform.saveFile(
+        dialogTitle: 'Chọn nơi lưu bảng chấm công',
+        fileName: defaultFileName,
+        type: FileType.custom,
+        allowedExtensions: ['xlsx'],
+      );
+
+      if (outputFile != null) {
+        if (!outputFile.toLowerCase().endsWith('.xlsx')) {
+          outputFile += '.xlsx';
+        }
+        final file = File(outputFile);
+        await file.writeAsBytes(fileBytes);
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Xuất file Excel thành công: $outputFile'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Lỗi khi xuất file Excel: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
   }
 
@@ -389,6 +746,20 @@ class _TimekeepingScreenState extends State<TimekeepingScreen> {
                           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                         ),
                         label: const Text('Lưu toàn bộ'),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    MouseRegion(
+                      cursor: SystemMouseCursors.click,
+                      child: ElevatedButton.icon(
+                        onPressed: _exportToExcel,
+                        icon: const Icon(Icons.file_download, size: 18),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.teal.shade700,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                        ),
+                        label: const Text('Xuất Excel'),
                       ),
                     ),
                   ],

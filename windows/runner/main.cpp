@@ -7,6 +7,26 @@
 
 int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
                       _In_ wchar_t *command_line, _In_ int show_command) {
+  // Đảm bảo chỉ có duy nhất 1 instance của ứng dụng chạy cùng lúc
+  HANDLE hMutex = ::CreateMutexW(nullptr, TRUE, L"ViDesktopApp_SingleInstance_Mutex_2026");
+  if (::GetLastError() == ERROR_ALREADY_EXISTS) {
+    // Đã có app đang mở -> tìm cửa sổ cũ và đưa lên trên cùng (focus)
+    HWND existingHwnd = ::FindWindowW(L"FLUTTER_RUNNER_WIN32_WINDOW", nullptr);
+    if (!existingHwnd) {
+      existingHwnd = ::FindWindowW(nullptr, L"Vi Desktop App");
+    }
+    if (existingHwnd) {
+      if (::IsIconic(existingHwnd)) {
+        ::ShowWindow(existingHwnd, SW_RESTORE);
+      }
+      ::SetForegroundWindow(existingHwnd);
+    }
+    if (hMutex) {
+      ::CloseHandle(hMutex);
+    }
+    return EXIT_SUCCESS; // Thoát instance mới ngay lập tức
+  }
+
   // Attach to console when present (e.g., 'flutter run') or create a
   // new console when running with a debugger.
   if (!::AttachConsole(ATTACH_PARENT_PROCESS) && ::IsDebuggerPresent()) {
@@ -28,6 +48,10 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   Win32Window::Point origin(10, 10);
   Win32Window::Size size(1280, 720);
   if (!window.Create(L"vi_desktop_app", origin, size)) {
+    if (hMutex) {
+      ::ReleaseMutex(hMutex);
+      ::CloseHandle(hMutex);
+    }
     return EXIT_FAILURE;
   }
   window.SetQuitOnClose(true);
@@ -39,5 +63,10 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   }
 
   ::CoUninitialize();
+
+  if (hMutex) {
+    ::ReleaseMutex(hMutex);
+    ::CloseHandle(hMutex);
+  }
   return EXIT_SUCCESS;
 }

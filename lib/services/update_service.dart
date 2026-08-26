@@ -41,8 +41,8 @@ class UpdateService {
   }
 
   // Thông tin phiên bản mặc định của App
-  String _currentVersion = '1.0.3';
-  int _currentBuildNumber = 4;
+  String _currentVersion = '1.0.4';
+  int _currentBuildNumber = 5;
 
   String get currentAppVersion => _currentVersion;
   int get currentAppBuildNumber => _currentBuildNumber;
