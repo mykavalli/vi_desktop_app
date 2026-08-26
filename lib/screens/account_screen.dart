@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
@@ -119,7 +120,174 @@ class _AccountScreenState extends State<AccountScreen> {
     }
   }
 
+  Future<void> _importGoogleJsonFile() async {
+    try {
+      FilePickerResult? result = await FilePicker.platform.pickFiles(
+        dialogTitle: 'Chọn file JSON credentials tải từ Google Cloud',
+        type: FileType.custom,
+        allowedExtensions: ['json'],
+      );
+
+      if (result == null || result.files.single.path == null) return;
+
+      final jsonPath = result.files.single.path!;
+      final fileContent = await File(jsonPath).readAsString();
+      final Map<String, dynamic> data = jsonDecode(fileContent);
+
+      String? clientId;
+      String? clientSecret;
+
+      if (data.containsKey('installed')) {
+        final installed = data['installed'] as Map<String, dynamic>;
+        clientId = installed['client_id'] as String?;
+        clientSecret = installed['client_secret'] as String?;
+      } else if (data.containsKey('web')) {
+        final web = data['web'] as Map<String, dynamic>;
+        clientId = web['client_id'] as String?;
+        clientSecret = web['client_secret'] as String?;
+      } else {
+        clientId = data['client_id'] as String?;
+        clientSecret = data['client_secret'] as String?;
+      }
+
+      if (clientId == null || clientId.trim().isEmpty) {
+        throw Exception('File JSON không chứa thông tin client_id hợp lệ.');
+      }
+
+      setState(() {
+        _googleClientIdController.text = clientId!.trim();
+        _googleClientSecretController.text = (clientSecret ?? '').trim();
+      });
+
+      await _db.updateGoogleCredentials(clientId.trim(), (clientSecret ?? '').trim());
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Đã nạp Client ID thành công: ${clientId.substring(0, 20)}...'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Lỗi đọc file JSON: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
+  void _showGoogleSetupGuideDialog() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.help_outline, color: Colors.blue),
+            SizedBox(width: 8),
+            Text('Hướng dẫn tạo Google Client ID (2 phút)'),
+          ],
+        ),
+        content: SizedBox(
+          width: 540,
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  'Google yêu cầu tạo một Client ID (Desktop App) trên Google Cloud Console để ứng dụng kết nối trực tiếp với Google Drive của bạn:',
+                  style: TextStyle(fontSize: 13),
+                ),
+                const SizedBox(height: 14),
+                _buildGuideStep('1', 'Tạo Project trên Google Cloud', 'Truy cập console.cloud.google.com và tạo 1 Project mới (hoặc chọn Project có sẵn).'),
+                _buildGuideStep('2', 'Bật Google Drive API', 'Vào menu [APIs & Services] -> [Enabled APIs & services] -> Tìm "Google Drive API" và bấm [Enable].'),
+                _buildGuideStep('3', 'Cấu hình OAuth consent screen', 'Vào mục [OAuth consent screen] -> Chọn [External] -> Nhập tên App (ví dụ: Vi Desktop App) và email liên hệ.'),
+                _buildGuideStep('4', 'Tạo OAuth Client ID (Desktop App)', 'Vào [Credentials] -> [Create Credentials] -> [OAuth client ID] -> Chọn Application type là [Desktop app] -> Bấm [Create].'),
+                _buildGuideStep('5', 'Tải file JSON và nạp vào App', 'Bấm nút [Download JSON] để tải file credentials về máy.'),
+                const SizedBox(height: 10),
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Colors.amber.shade50,
+                    border: Border.all(color: Colors.amber.shade300),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Row(
+                    children: [
+                      Icon(Icons.info_outline, color: Colors.orange, size: 20),
+                      SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Sau khi tải file JSON về máy, bạn chỉ cần bấm nút [Nạp file JSON] trong ứng dụng là xong!',
+                          style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Đóng'),
+          ),
+          ElevatedButton.icon(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.blue.shade700, foregroundColor: Colors.white),
+            onPressed: () {
+              launchUrl(
+                Uri.parse('https://console.cloud.google.com/apis/credentials'),
+                mode: LaunchMode.externalApplication,
+              );
+            },
+            icon: const Icon(Icons.open_in_new, size: 18),
+            label: const Text('Mở Google Cloud Console'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildGuideStep(String number, String title, String description) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10.0),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          CircleAvatar(
+            radius: 12,
+            backgroundColor: Colors.blue.shade100,
+            child: Text(
+              number,
+              style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.blue.shade900),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                Text(description, style: TextStyle(color: Colors.grey.shade700, fontSize: 12)),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _loginGoogle() async {
+    final clientId = _googleClientIdController.text.trim();
+    if (clientId.isEmpty) {
+      _showGoogleSetupGuideDialog();
+      return;
+    }
+
     setState(() => _isGoogleLoading = true);
     try {
       final success = await _driveService.authenticate();
@@ -659,6 +827,7 @@ class _AccountScreenState extends State<AccountScreen> {
   Widget _buildGoogleSection(BuildContext context) {
     final isAuth = _driveService.isAuthenticated;
     final email = _driveService.currentUserEmail;
+    final hasClientId = _googleClientIdController.text.trim().isNotEmpty;
 
     return Card(
       elevation: 1,
@@ -704,8 +873,12 @@ class _AccountScreenState extends State<AccountScreen> {
               child: Row(
                 children: [
                   Icon(
-                    isAuth ? Icons.check_circle : Icons.account_circle_outlined,
-                    color: isAuth ? Colors.green.shade700 : Colors.grey.shade600,
+                    isAuth
+                        ? Icons.check_circle
+                        : (hasClientId ? Icons.account_circle_outlined : Icons.warning_amber_rounded),
+                    color: isAuth
+                        ? Colors.green.shade700
+                        : (hasClientId ? Colors.blue.shade700 : Colors.orange.shade700),
                     size: 28,
                   ),
                   const SizedBox(width: 12),
@@ -714,10 +887,14 @@ class _AccountScreenState extends State<AccountScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          isAuth ? 'Đã kết nối Google Drive' : 'Chưa đăng nhập Google',
+                          isAuth
+                              ? 'Đã kết nối Google Drive'
+                              : (hasClientId ? 'Sẵn sàng đăng nhập Google' : 'Chưa cấu hình Google Client ID'),
                           style: TextStyle(
                             fontWeight: FontWeight.bold,
-                            color: isAuth ? Colors.green.shade900 : Colors.grey.shade800,
+                            color: isAuth
+                                ? Colors.green.shade900
+                                : (hasClientId ? Colors.blue.shade900 : Colors.orange.shade900),
                             fontSize: 14,
                           ),
                         ),
@@ -728,8 +905,10 @@ class _AccountScreenState extends State<AccountScreen> {
                           )
                         else if (!isAuth)
                           Text(
-                            'Đăng nhập để tự động lưu phiên và sao lưu dữ liệu',
-                            style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
+                            hasClientId
+                                ? 'Đã nạp Client ID. Bấm nút bên dưới để cấp quyền Google Drive.'
+                                : 'Cần Client ID (Desktop app) từ Google Cloud để kết nối Drive.',
+                            style: TextStyle(color: Colors.grey[600], fontSize: 12),
                           ),
                       ],
                     ),
@@ -740,28 +919,57 @@ class _AccountScreenState extends State<AccountScreen> {
 
             const SizedBox(height: 16),
 
-            // Nút đăng nhập / đăng xuất
-            if (!isAuth)
-              SizedBox(
-                width: double.infinity,
-                height: 44,
-                child: ElevatedButton.icon(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.blue.shade700,
-                    foregroundColor: Colors.white,
+            // Nút Thao tác Đăng nhập / Nạp JSON / Hướng dẫn
+            if (!isAuth) ...[
+              if (hasClientId)
+                SizedBox(
+                  width: double.infinity,
+                  height: 44,
+                  child: ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.blue.shade700,
+                      foregroundColor: Colors.white,
+                    ),
+                    onPressed: _isGoogleLoading ? null : _loginGoogle,
+                    icon: _isGoogleLoading
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                          )
+                        : const Icon(Icons.login),
+                    label: Text(_isGoogleLoading ? 'Đang mở trình duyệt...' : 'Đăng nhập với Google'),
                   ),
-                  onPressed: _isGoogleLoading ? null : _loginGoogle,
-                  icon: _isGoogleLoading
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
-                        )
-                      : const Icon(Icons.login),
-                  label: Text(_isGoogleLoading ? 'Đang mở trình duyệt...' : 'Đăng nhập với Google'),
                 ),
-              )
-            else
+              if (hasClientId) const SizedBox(height: 10),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.teal.shade800,
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                      ),
+                      onPressed: _isGoogleLoading ? null : _importGoogleJsonFile,
+                      icon: const Icon(Icons.upload_file, size: 18),
+                      label: const Text('Nạp file JSON Google', style: TextStyle(fontSize: 12)),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.indigo.shade800,
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                      ),
+                      onPressed: _showGoogleSetupGuideDialog,
+                      icon: const Icon(Icons.help_outline, size: 18),
+                      label: const Text('Xem hướng dẫn (2p)', style: TextStyle(fontSize: 12)),
+                    ),
+                  ),
+                ],
+              ),
+            ] else
               Row(
                 children: [
                   Expanded(
@@ -793,7 +1001,7 @@ class _AccountScreenState extends State<AccountScreen> {
 
             const SizedBox(height: 14),
 
-            // Mục tùy chọn nâng cao Google Client ID
+            // Accordion Cấu hình Google Client ID thủ công
             InkWell(
               borderRadius: BorderRadius.circular(6),
               onTap: () {
@@ -808,7 +1016,7 @@ class _AccountScreenState extends State<AccountScreen> {
                       color: Colors.grey.shade700,
                     ),
                     Text(
-                      'Cấu hình Google Client ID (Nâng cao)',
+                      'Nhập Client ID thủ công',
                       style: TextStyle(
                         fontSize: 13,
                         fontWeight: FontWeight.w600,
@@ -821,19 +1029,6 @@ class _AccountScreenState extends State<AccountScreen> {
             ),
 
             if (_showAdvancedGoogleConfig) ...[
-              const SizedBox(height: 8),
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: Colors.blue.shade50,
-                  borderRadius: BorderRadius.circular(6),
-                  border: Border.all(color: Colors.blue.shade200),
-                ),
-                child: const Text(
-                  '💡 Hệ thống đã tích hợp sẵn Client ID mặc định. Bạn không cần điền phần này trừ khi muốn dùng Project Google Cloud riêng của doanh nghiệp.',
-                  style: TextStyle(fontSize: 12, color: Colors.blueGrey),
-                ),
-              ),
               const SizedBox(height: 10),
               Form(
                 key: _googleFormKey,
@@ -842,11 +1037,17 @@ class _AccountScreenState extends State<AccountScreen> {
                     TextFormField(
                       controller: _googleClientIdController,
                       decoration: const InputDecoration(
-                        labelText: 'Google Client ID (Để trống nếu dùng mặc định)',
+                        labelText: 'Google Client ID (Desktop app)',
                         border: OutlineInputBorder(),
                         isDense: true,
                         prefixIcon: Icon(Icons.api, size: 20),
                       ),
+                      validator: (value) {
+                        if (value == null || value.trim().isEmpty) {
+                          return 'Vui lòng nhập Client ID';
+                        }
+                        return null;
+                      },
                     ),
                     const SizedBox(height: 10),
                     TextFormField(
@@ -865,12 +1066,12 @@ class _AccountScreenState extends State<AccountScreen> {
                           child: OutlinedButton.icon(
                             onPressed: _isGoogleLoading ? null : _saveGoogleCredentials,
                             icon: const Icon(Icons.save, size: 18),
-                            label: const Text('Lưu Client ID riêng'),
+                            label: const Text('Lưu thông tin'),
                           ),
                         ),
                         const SizedBox(width: 8),
                         IconButton.filledTonal(
-                          tooltip: 'Mở trang Google Cloud Console để tạo Client ID',
+                          tooltip: 'Mở trang Google Cloud Console',
                           onPressed: () {
                             launchUrl(
                               Uri.parse('https://console.cloud.google.com/apis/credentials'),

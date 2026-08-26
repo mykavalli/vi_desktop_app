@@ -15,10 +15,6 @@ class GoogleDriveService {
     drive.DriveApi.driveFileScope,
     'https://www.googleapis.com/auth/userinfo.email',
   ];
-  // Client ID mặc định của ứng dụng (dành cho người dùng thông thường không cần tự tạo Project GCP)
-  static const String defaultClientId =
-      '807663248384-j0l9j4u9k5c84f4p5f3l71n9k0c1a2b3.apps.googleusercontent.com';
-  static const String defaultClientSecret = '';
   static const _folderName = 'Vi Desktop App Backups';
 
   AutoRefreshingAuthClient? _client;
@@ -64,7 +60,7 @@ class GoogleDriveService {
       final authJson = user?.googleAuthJson;
       final userEmail = user?.googleUserEmail;
 
-      if (authJson == null || authJson.trim().isEmpty) {
+      if (userClientId == null || userClientId.isEmpty || authJson == null || authJson.trim().isEmpty) {
         return false;
       }
 
@@ -76,14 +72,7 @@ class GoogleDriveService {
         return false;
       }
 
-      final activeClientId = (userClientId != null && userClientId.isNotEmpty)
-          ? userClientId
-          : defaultClientId;
-      final activeClientSecret = (userClientSecret != null && userClientSecret.isNotEmpty)
-          ? userClientSecret
-          : defaultClientSecret;
-
-      final id = ClientId(activeClientId, activeClientSecret);
+      final id = ClientId(userClientId, userClientSecret ?? '');
       final baseClient = http.Client();
       final client = autoRefreshingClient(id, credentials, baseClient);
 
@@ -111,14 +100,11 @@ class GoogleDriveService {
       final userClientId = user?.googleClientId?.trim();
       final userClientSecret = user?.googleClientSecret?.trim();
 
-      final activeClientId = (userClientId != null && userClientId.isNotEmpty)
-          ? userClientId
-          : defaultClientId;
-      final activeClientSecret = (userClientSecret != null && userClientSecret.isNotEmpty)
-          ? userClientSecret
-          : defaultClientSecret;
+      if (userClientId == null || userClientId.isEmpty) {
+        throw Exception('Vui lòng nhập Google Client ID hoặc nạp file JSON từ Google Cloud Console.');
+      }
 
-      final id = ClientId(activeClientId, activeClientSecret);
+      final id = ClientId(userClientId, userClientSecret ?? '');
 
       final client = await clientViaUserConsent(id, _scopes, (url) {
         launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
