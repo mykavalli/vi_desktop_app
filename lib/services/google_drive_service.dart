@@ -1,4 +1,6 @@
 import 'dart:io';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import 'package:googleapis/drive/v3.dart' as drive;
 import 'package:googleapis_auth/auth_io.dart';
@@ -9,15 +11,89 @@ class GoogleDriveService {
   static final GoogleDriveService instance = GoogleDriveService._();
   GoogleDriveService._();
 
-  static final _scopes = [drive.DriveApi.driveFileScope];
+  static final _scopes = [
+    drive.DriveApi.driveFileScope,
+    'https://www.googleapis.com/auth/userinfo.email',
+  ];
   static const _folderName = 'Vi Desktop App Backups';
 
-  AuthClient? _client;
+  AutoRefreshingAuthClient? _client;
+  String? _currentUserEmail;
 
   bool get isAuthenticated => _client != null;
-  // Giữ tương thích với code cũ (có thể là IsAuthenticated viết hoa)
   bool get IsAuthenticated => _client != null;
+  String? get currentUserEmail => _currentUserEmail;
 
+  /// Map AccessCredentials to JSON Map
+  Map<String, dynamic> _credentialsToJson(AccessCredentials credentials) {
+    return {
+      'type': credentials.accessToken.type,
+      'data': credentials.accessToken.data,
+      'expiry': credentials.accessToken.expiry.toUtc().toIso8601String(),
+      'refreshToken': credentials.refreshToken,
+      'scopes': credentials.scopes,
+      'idToken': credentials.idToken,
+    };
+  }
+
+  /// Rebuild AccessCredentials from JSON Map
+  AccessCredentials _credentialsFromJson(Map<String, dynamic> json) {
+    return AccessCredentials(
+      AccessToken(
+        json['type'] as String? ?? 'Bearer',
+        json['data'] as String,
+        DateTime.parse(json['expiry'] as String).toUtc(),
+      ),
+      json['refreshToken'] as String?,
+      (json['scopes'] as List<dynamic>?)?.map((e) => e.toString()).toList() ?? _scopes,
+      idToken: json['idToken'] as String?,
+    );
+  }
+
+  /// Tự động khôi phục phiên đăng nhập đã lưu trong database
+  Future<bool> restoreSession() async {
+    if (_client != null) return true;
+    try {
+      final user = await DatabaseHelper.instance.getUser();
+      final clientId = user?.googleClientId;
+      final clientSecret = user?.googleClientSecret;
+      final authJson = user?.googleAuthJson;
+      final userEmail = user?.googleUserEmail;
+
+      if (clientId == null || clientId.trim().isEmpty || authJson == null || authJson.trim().isEmpty) {
+        return false;
+      }
+
+      final credsMap = jsonDecode(authJson) as Map<String, dynamic>;
+      final credentials = _credentialsFromJson(credsMap);
+
+      // Nếu không có refreshToken và token đã hết hạn thì không thể khôi phục
+      if (credentials.refreshToken == null && credentials.accessToken.expiry.isBefore(DateTime.now().toUtc())) {
+        return false;
+      }
+
+      final id = ClientId(clientId, clientSecret ?? '');
+      final baseClient = http.Client();
+      final client = autoRefreshingClient(id, credentials, baseClient);
+
+      _client = client;
+      _currentUserEmail = userEmail;
+
+      // Lắng nghe sự kiện tự động refresh token để cập nhật lại DB
+      client.credentialUpdates.listen((newCreds) async {
+        final updatedJson = jsonEncode(_credentialsToJson(newCreds));
+        await DatabaseHelper.instance.saveGoogleAuth(updatedJson, _currentUserEmail);
+      });
+
+      return true;
+    } catch (e) {
+      print('Google Drive Session Restore Error: $e');
+      _client = null;
+      return false;
+    }
+  }
+
+  /// Thực hiện đăng nhập Google qua Consent Flow trên trình duyệt
   Future<bool> authenticate() async {
     try {
       final user = await DatabaseHelper.instance.getUser();
@@ -30,8 +106,34 @@ class GoogleDriveService {
 
       final id = ClientId(clientId, clientSecret ?? '');
 
-      _client = await clientViaUserConsent(id, _scopes, (url) {
+      final client = await clientViaUserConsent(id, _scopes, (url) {
         launchUrl(Uri.parse(url));
+      });
+
+      _client = client;
+
+      // Lấy thông tin email tài khoản Google
+      String? email;
+      try {
+        final response = await client.get(Uri.parse('https://www.googleapis.com/oauth2/v2/userinfo'));
+        if (response.statusCode == 200) {
+          final info = jsonDecode(response.body) as Map<String, dynamic>;
+          email = info['email'] as String?;
+        }
+      } catch (e) {
+        print('Không thể lấy Google user info: $e');
+      }
+
+      _currentUserEmail = email;
+
+      // Lưu credentials vào database để ghi nhớ đăng nhập
+      final authJson = jsonEncode(_credentialsToJson(client.credentials));
+      await DatabaseHelper.instance.saveGoogleAuth(authJson, email);
+
+      // Lắng nghe sự kiện token refresh sau này
+      client.credentialUpdates.listen((newCreds) async {
+        final updatedJson = jsonEncode(_credentialsToJson(newCreds));
+        await DatabaseHelper.instance.saveGoogleAuth(updatedJson, _currentUserEmail);
       });
 
       return true;
@@ -41,15 +143,21 @@ class GoogleDriveService {
     }
   }
 
-  void signOut() {
+  /// Đăng xuất tài khoản Google và xóa thông tin lưu trữ
+  Future<void> signOut() async {
     _client?.close();
     _client = null;
+    _currentUserEmail = null;
+    await DatabaseHelper.instance.clearGoogleAuth();
   }
 
   // ==================== UPLOAD ====================
 
   Future<double?> uploadBackup(File dbFile) async {
-    if (_client == null) return null;
+    if (_client == null) {
+      final restored = await restoreSession();
+      if (!restored || _client == null) return null;
+    }
 
     final driveApi = drive.DriveApi(_client!);
 
@@ -74,7 +182,12 @@ class GoogleDriveService {
 
   /// Liệt kê tất cả file backup trên Drive, sắp xếp theo thời gian giảm dần
   Future<List<drive.File>> listBackups() async {
-    if (_client == null) throw Exception('Chưa xác thực Google Drive.');
+    if (_client == null) {
+      final restored = await restoreSession();
+      if (!restored || _client == null) {
+        throw Exception('Chưa xác thực Google Drive.');
+      }
+    }
 
     final driveApi = drive.DriveApi(_client!);
     final folderId = await _getFolderId(driveApi, _folderName);
@@ -94,7 +207,12 @@ class GoogleDriveService {
 
   /// Download một file backup về thư mục temp, trả về File path để restore
   Future<File> downloadBackup(String fileId, String fileName) async {
-    if (_client == null) throw Exception('Chưa xác thực Google Drive.');
+    if (_client == null) {
+      final restored = await restoreSession();
+      if (!restored || _client == null) {
+        throw Exception('Chưa xác thực Google Drive.');
+      }
+    }
 
     final driveApi = drive.DriveApi(_client!);
     final media = await driveApi.files.get(

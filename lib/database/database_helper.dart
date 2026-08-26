@@ -26,7 +26,7 @@ class DatabaseHelper {
 
     return await openDatabase(
       path,
-      version: 9,
+      version: 10,
       onCreate: _createDB,
       onUpgrade: _upgradeDB,
     );
@@ -39,6 +39,8 @@ class DatabaseHelper {
         password_hash TEXT NOT NULL,
         google_client_id TEXT,
         google_client_secret TEXT,
+        google_auth_json TEXT,
+        google_user_email TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     ''');
@@ -208,6 +210,17 @@ class DatabaseHelper {
         }
       }
     }
+    if (oldVersion < 10) {
+      final newCols = [
+        "ALTER TABLE users ADD COLUMN google_auth_json TEXT",
+        "ALTER TABLE users ADD COLUMN google_user_email TEXT",
+      ];
+      for (final sql in newCols) {
+        try {
+          await db.execute(sql);
+        } catch (_) {}
+      }
+    }
   }
 
   // ==================== USER OPERATIONS ====================
@@ -257,6 +270,45 @@ class DatabaseHelper {
       {
         'google_client_id': clientId,
         'google_client_secret': clientSecret,
+      },
+      where: 'id = ?',
+      whereArgs: [user.id],
+    );
+  }
+
+  Future<int> saveGoogleAuth(String authJson, String? email) async {
+    final db = await database;
+    final user = await getUser();
+    if (user == null) {
+      return await insertUser(
+        User(
+          passwordHash: '',
+          googleAuthJson: authJson,
+          googleUserEmail: email,
+          createdAt: DateTime.now(),
+        ),
+      );
+    }
+    return await db.update(
+      'users',
+      {
+        'google_auth_json': authJson,
+        'google_user_email': email,
+      },
+      where: 'id = ?',
+      whereArgs: [user.id],
+    );
+  }
+
+  Future<int> clearGoogleAuth() async {
+    final db = await database;
+    final user = await getUser();
+    if (user == null) return 0;
+    return await db.update(
+      'users',
+      {
+        'google_auth_json': null,
+        'google_user_email': null,
       },
       where: 'id = ?',
       whereArgs: [user.id],

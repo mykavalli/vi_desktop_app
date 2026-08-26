@@ -10,6 +10,7 @@ import 'login_screen.dart';
 import 'guide_screen.dart';
 import 'package:window_manager/window_manager.dart';
 import '../services/google_drive_service.dart';
+import '../services/update_service.dart';
 import 'dart:io';
 import 'package:sqflite/sqflite.dart';
 import 'dart:async';
@@ -29,6 +30,25 @@ class _HomeScreenState extends State<HomeScreen> with WindowListener {
     super.initState();
     windowManager.addListener(this);
     _initWindow();
+    _initServices();
+  }
+
+  Future<void> _initServices() async {
+    // Tự động khôi phục phiên Google Drive nếu có
+    await GoogleDriveService.instance.restoreSession();
+    // Tự động kiểm tra bản cập nhật mới trong nền
+    _checkUpdateOnStartup();
+  }
+
+  Future<void> _checkUpdateOnStartup() async {
+    await Future.delayed(const Duration(seconds: 3));
+    if (!mounted) return;
+    try {
+      final update = await UpdateService.instance.checkForUpdates();
+      if (update != null && mounted) {
+        UpdateService.instance.showUpdateDialog(context, update);
+      }
+    } catch (_) {}
   }
 
   @override
@@ -85,8 +105,12 @@ class _HomeScreenState extends State<HomeScreen> with WindowListener {
   Future<void> _performBackupAndExit() async {
     final drive = GoogleDriveService.instance;
 
-    // Check auth
-    if (!drive.IsAuthenticated) {
+    // Check auth, try restore session first
+    if (!drive.isAuthenticated) {
+      await drive.restoreSession();
+    }
+
+    if (!drive.isAuthenticated) {
       bool authed = false;
       String? authError;
       try {

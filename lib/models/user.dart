@@ -3,6 +3,8 @@ class User {
   final String passwordHash;
   final String? googleClientId;
   final String? googleClientSecret;
+  final String? googleAuthJson;
+  final String? googleUserEmail;
   final DateTime createdAt;
 
   User({
@@ -10,7 +12,9 @@ class User {
     required this.passwordHash, 
     this.googleClientId,
     this.googleClientSecret,
-    required this.createdAt
+    this.googleAuthJson,
+    this.googleUserEmail,
+    required this.createdAt,
   });
 
   Map<String, dynamic> toMap() {
@@ -19,6 +23,8 @@ class User {
       'password_hash': passwordHash,
       'google_client_id': googleClientId,
       'google_client_secret': googleClientSecret,
+      'google_auth_json': googleAuthJson,
+      'google_user_email': googleUserEmail,
       'created_at': createdAt.toIso8601String(),
     };
   }
@@ -29,6 +35,8 @@ class User {
       passwordHash: map['password_hash'],
       googleClientId: map['google_client_id'],
       googleClientSecret: map['google_client_secret'],
+      googleAuthJson: map['google_auth_json'],
+      googleUserEmail: map['google_user_email'],
       createdAt: map['created_at'] != null 
           ? DateTime.tryParse(map['created_at'].toString()) ?? DateTime.now()
           : DateTime.now(),
