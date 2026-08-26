@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:googleapis/drive/v3.dart' as drive_api;
 import 'package:sqflite/sqflite.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../services/auth_service.dart';
 import '../database/database_helper.dart';
 import '../services/google_drive_service.dart';
@@ -820,6 +821,19 @@ class _AccountScreenState extends State<AccountScreen> {
             ),
 
             if (_showAdvancedGoogleConfig) ...[
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.blue.shade50,
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(color: Colors.blue.shade200),
+                ),
+                child: const Text(
+                  '💡 Hệ thống đã tích hợp sẵn Client ID mặc định. Bạn không cần điền phần này trừ khi muốn dùng Project Google Cloud riêng của doanh nghiệp.',
+                  style: TextStyle(fontSize: 12, color: Colors.blueGrey),
+                ),
+              ),
               const SizedBox(height: 10),
               Form(
                 key: _googleFormKey,
@@ -828,17 +842,11 @@ class _AccountScreenState extends State<AccountScreen> {
                     TextFormField(
                       controller: _googleClientIdController,
                       decoration: const InputDecoration(
-                        labelText: 'Google Client ID',
+                        labelText: 'Google Client ID (Để trống nếu dùng mặc định)',
                         border: OutlineInputBorder(),
                         isDense: true,
                         prefixIcon: Icon(Icons.api, size: 20),
                       ),
-                      validator: (value) {
-                        if (value == null || value.trim().isEmpty) {
-                          return 'Vui lòng nhập Client ID';
-                        }
-                        return null;
-                      },
                     ),
                     const SizedBox(height: 10),
                     TextFormField(
@@ -851,13 +859,27 @@ class _AccountScreenState extends State<AccountScreen> {
                       ),
                     ),
                     const SizedBox(height: 12),
-                    SizedBox(
-                      width: double.infinity,
-                      child: OutlinedButton.icon(
-                        onPressed: _isGoogleLoading ? null : _saveGoogleCredentials,
-                        icon: const Icon(Icons.save, size: 18),
-                        label: const Text('Lưu thông tin Client ID'),
-                      ),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: _isGoogleLoading ? null : _saveGoogleCredentials,
+                            icon: const Icon(Icons.save, size: 18),
+                            label: const Text('Lưu Client ID riêng'),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        IconButton.filledTonal(
+                          tooltip: 'Mở trang Google Cloud Console để tạo Client ID',
+                          onPressed: () {
+                            launchUrl(
+                              Uri.parse('https://console.cloud.google.com/apis/credentials'),
+                              mode: LaunchMode.externalApplication,
+                            );
+                          },
+                          icon: const Icon(Icons.open_in_new, size: 18),
+                        ),
+                      ],
                     ),
                   ],
                 ),
