@@ -1,8 +1,8 @@
 ﻿{
-  "version": "1.0.5",
-  "build_number": 6,
+  "version": "1.0.6",
+  "build_number": 7,
   "release_date": "2026-08-26",
-  "changelog": "- Thêm nút 'Mở file' sau khi xuất Excel ở trang Chấm công.\n- Tự động mở toàn màn hình (full screen/maximized) khi khởi động app.\n- Tự động focus vào ô nhập mật khẩu khi mở app.",
-  "download_url": "https://raw.githubusercontent.com/mykavalli/vi_desktop_app/updates/vi_patch_v1.0.5.zip",
+  "changelog": "- Xuất đầy đủ tất cả các Điểm giao dịch cho từng nhân viên kể cả khi chưa có chấm công.\n- Tự động gộp dòng (Merge Cells) các cột STT, Tên nhân viên và Vai trò theo từng nhóm điểm giao dịch, căn giữa chiều dọc và căn trái (middle-left).",
+  "download_url": "https://raw.githubusercontent.com/mykavalli/vi_desktop_app/updates/vi_patch_v1.0.6.zip",
   "mandatory": false
 }
