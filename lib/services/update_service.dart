@@ -73,23 +73,24 @@ class UpdateService {
 
   /// Kiểm tra có bản cập nhật mới trên Git hay không
   Future<UpdateInfo?> checkForUpdates({String? customUrl}) async {
-    try {
-      final url = customUrl ?? defaultUpdateUrl;
-      final uri = Uri.parse(url);
+    final url = customUrl ?? defaultUpdateUrl;
+    final uri = Uri.parse(url);
 
-      final response = await http.get(uri).timeout(const Duration(seconds: 8));
-      if (response.statusCode == 200) {
-        final data = jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
-        final info = UpdateInfo.fromJson(data);
+    final response = await http.get(uri).timeout(const Duration(seconds: 8));
+    if (response.statusCode == 200) {
+      final data = jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+      final info = UpdateInfo.fromJson(data);
 
-        if (_isNewer(info.version, info.buildNumber)) {
-          return info;
-        }
+      if (_isNewer(info.version, info.buildNumber)) {
+        return info;
       }
-      return null;
-    } catch (e) {
-      print('Check update error: $e');
-      return null;
+      return null; // Đang ở bản mới nhất
+    } else if (response.statusCode == 404) {
+      throw Exception(
+        'Không thể tải version.json (Mã lỗi 404: Repository GitHub đang ở chế độ Private). Vui lòng chuyển Repo sang Public để tải bản cập nhật.',
+      );
+    } else {
+      throw Exception('Máy chủ cập nhật phản hồi mã lỗi HTTP ${response.statusCode}');
     }
   }
 
