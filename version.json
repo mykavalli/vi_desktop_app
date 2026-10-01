@@ -1,8 +1,8 @@
 ﻿{
-  "version": "1.0.6",
-  "build_number": 7,
-  "release_date": "2026-08-26",
-  "changelog": "- Xuất đầy đủ tất cả các Điểm giao dịch cho từng nhân viên kể cả khi chưa có chấm công.\n- Tự động gộp dòng (Merge Cells) các cột STT, Tên nhân viên và Vai trò theo từng nhóm điểm giao dịch, căn giữa chiều dọc và căn trái (middle-left).",
-  "download_url": "https://raw.githubusercontent.com/mykavalli/vi_desktop_app/updates/vi_patch_v1.0.6.zip",
+  "version": "1.0.7",
+  "build_number": 8,
+  "release_date": "2026-10-01",
+  "changelog": "- Sửa lỗi lệch số liệu giữa Chấm công tổng hợp và Chấm công chi tiết: mỗi lượt chấm tại một điểm giao dịch được tính là 1 công (một ngày có thể có nhiều công).\n- Màn Chấm công chi tiết hiển thị \"Số công\" thống nhất với màn tổng hợp.\n- Cột \"Tổng ngày làm\" đổi thành \"Tổng công\" trong màn tổng hợp và file Excel xuất ra.",
+  "download_url": "https://raw.githubusercontent.com/mykavalli/vi_desktop_app/updates/vi_patch_v1.0.7.zip",
   "mandatory": false
 }
