@@ -7,6 +7,7 @@ import '../database/database_helper.dart';
 import '../models/personnel.dart';
 import '../models/timekeeping.dart';
 import '../state/app_state.dart';
+import '../utils/timekeeping_counts.dart';
 import '../widgets/compact_date_range_picker.dart';
 
 class TimekeepingDetailScreen extends StatefulWidget {
@@ -349,6 +350,7 @@ class _TimekeepingDetailScreenState extends State<TimekeepingDetailScreen> {
   @override
   Widget build(BuildContext context) {
     final groupedByPersonnel = _groupByPersonnel();
+    final countsByPersonnel = countTimekeepingByPersonnel(_details);
 
     return Scaffold(
       body: Column(
@@ -511,17 +513,9 @@ class _TimekeepingDetailScreenState extends State<TimekeepingDetailScreen> {
                           final personnelName = firstDetail.personnelName;
                           final isResigned = !firstDetail.personnelIsWorking;
 
-                          // Count summary
-                          int workDays = 0;
-                          int phepDays = 0;
-                          int kphepDays = 0;
-                          for (var records in dateMap.values) {
-                            for (var r in records) {
-                              if (r.dayStatus == DayStatus.tx || r.dayStatus == DayStatus.px) workDays++;
-                              else if (r.dayStatus == DayStatus.np) phepDays++;
-                              else if (r.dayStatus == DayStatus.kp) kphepDays++;
-                            }
-                          }
+                          // Số công/số ngày nghỉ — dùng chung logic với màn tổng hợp
+                          final counts = countsByPersonnel[personnelId] ??
+                              const TimekeepingCounts();
 
                           return Card(
                             margin: const EdgeInsets.only(bottom: 16),
@@ -575,20 +569,20 @@ class _TimekeepingDetailScreenState extends State<TimekeepingDetailScreen> {
                               ),
                               subtitle: Row(
                                 children: [
-                                  Text('Đi làm: $workDays',
+                                  Text('Số công: ${counts.workingDays}',
                                       style: TextStyle(
                                           color: Colors.blue.shade700,
                                           fontSize: 12)),
-                                  if (phepDays > 0) ...[
+                                  if (counts.phepDays > 0) ...[
                                     const SizedBox(width: 8),
-                                    Text('Nghỉ phép: $phepDays',
+                                    Text('Nghỉ phép: ${counts.phepDays}',
                                         style: TextStyle(
                                             color: Colors.orange.shade800,
                                             fontSize: 12)),
                                   ],
-                                  if (kphepDays > 0) ...[
+                                  if (counts.kphepDays > 0) ...[
                                     const SizedBox(width: 8),
-                                    Text('K phép: $kphepDays',
+                                    Text('K phép: ${counts.kphepDays}',
                                         style: TextStyle(
                                             color: Colors.red.shade800,
                                             fontSize: 12)),

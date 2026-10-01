@@ -110,11 +110,11 @@ class TimekeepingSummary {
   final String personnelName;
   final String personnelRole;
   final bool isWorking;
-  final int totalWorkingDays; // TX + PX
-  final int totalPxDays; // PX
-  final int totalDaysOff; // NP
-  final int totalDaysUnauth; // KP
-  final Map<String, int> txDaysByTransactionPoint; // Only counts TX
+  final int totalWorkingDays; // Số công TX + PX (mỗi điểm giao dịch/ngày = 1 công)
+  final int totalPxDays; // Số công PX (mỗi điểm giao dịch/ngày = 1 công)
+  final int totalDaysOff; // Số ngày NP (theo ngày)
+  final int totalDaysUnauth; // Số ngày KP (theo ngày)
+  final Map<String, int> txDaysByTransactionPoint; // Số công TX theo điểm giao dịch
 
   TimekeepingSummary({
     required this.personnelId,

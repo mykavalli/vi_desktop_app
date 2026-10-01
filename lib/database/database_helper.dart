@@ -589,6 +589,7 @@ class DatabaseHelper {
         COALESCE(p.name, 'N/A') as personnel_name,
         COALESCE(p.is_working, 1) as personnel_is_working,
         COALESCE(p.role, '') as personnel_role,
+        t.transaction_point_id,
         COALESCE(tp.name, 'N/A') as transaction_point_name,
         t.date,
         t.day_status
@@ -606,6 +607,7 @@ class DatabaseHelper {
       final personnelName = row['personnel_name'] as String;
       final personnelRole = row['personnel_role'] as String? ?? '';
       final isWorking = (row['personnel_is_working'] as int? ?? 1) == 1;
+      final tpId = row['transaction_point_id'] as int? ?? 0;
       final tpName = row['transaction_point_name'] as String? ?? 'N/A';
       final date = row['date'] as String? ?? '';
       final String dayStatus = row['day_status'] as String? ?? '';
@@ -616,11 +618,14 @@ class DatabaseHelper {
           'personnel_name': personnelName,
           'personnel_role': personnelRole,
           'is_working': isWorking,
+          // Map<tpName, Set<date>> — số công TX theo từng điểm giao dịch (để hiển thị)
           'tx_dates_by_tp': <String, Set<String>>{},
-          'px_dates': <String>{},
+          // Set<(date, tpId)> — số công TX/PX theo từng điểm giao dịch (để tính tổng)
+          'tx_pairs': <(String, int)>{},
+          'px_pairs': <(String, int)>{},
+          // NP/KP tính theo ngày
           'np_dates': <String>{},
           'kp_dates': <String>{},
-          'all_working_dates': <String>{},
         };
       }
 
@@ -632,10 +637,11 @@ class DatabaseHelper {
            txDatesByTp[tpName] = <String>{};
          }
          txDatesByTp[tpName]!.add(date);
-         (pMap['all_working_dates'] as Set<String>).add(date);
+         // Mỗi (ngày, điểm giao dịch) TX = 1 công
+         (pMap['tx_pairs'] as Set<(String, int)>).add((date, tpId));
       } else if (dayStatus == 'PX') {
-         (pMap['px_dates'] as Set<String>).add(date);
-         (pMap['all_working_dates'] as Set<String>).add(date);
+         // Mỗi (ngày, điểm giao dịch) PX = 1 công
+         (pMap['px_pairs'] as Set<(String, int)>).add((date, tpId));
       } else if (dayStatus == 'NP') {
          (pMap['np_dates'] as Set<String>).add(date);
       } else if (dayStatus == 'KP') {
@@ -647,10 +653,12 @@ class DatabaseHelper {
       final txDatesByTp = data['tx_dates_by_tp'] as Map<String, Set<String>>;
       final daysByTransactionPoint = txDatesByTp.map((key, value) => MapEntry(key, value.length));
 
-      final totalPx = (data['px_dates'] as Set<String>).length;
+      final totalTx = (data['tx_pairs'] as Set<(String, int)>).length;
+      final totalPx = (data['px_pairs'] as Set<(String, int)>).length;
       final totalDaysOff = (data['np_dates'] as Set<String>).length;
       final totalDaysUnauth = (data['kp_dates'] as Set<String>).length;
-      final totalWorkingDays = (data['all_working_dates'] as Set<String>).length;
+      // Mỗi lượt chấm TX/PX tại một điểm giao dịch = 1 công
+      final totalWorkingDays = totalTx + totalPx;
 
       return TimekeepingSummary(
         personnelId: data['personnel_id'],

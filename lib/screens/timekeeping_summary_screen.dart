@@ -112,7 +112,7 @@ class _TimekeepingSummaryScreenState extends State<TimekeepingSummaryScreen> {
       colWidths.add(15.0);
     }
     
-    headers.addAll(['Tổng PX', 'Tổng ngày làm', 'Tổng nghỉ', 'N.Phép', 'K.Phép']);
+    headers.addAll(['Tổng PX', 'Tổng công', 'Tổng nghỉ', 'N.Phép', 'K.Phép']);
     colWidths.addAll([12.0, 15.0, 12.0, 10.0, 10.0]);
 
     xls.CellStyle headerStyle = xls.CellStyle(
@@ -449,7 +449,7 @@ class _TimekeepingSummaryScreenState extends State<TimekeepingSummaryScreen> {
                                                 fontWeight: FontWeight.bold,
                                                 color: Colors.blueGrey))),
                                     const DataColumn(
-                                        label: Text('Tổng\nngày làm',
+                                        label: Text('Tổng\ncông',
                                             textAlign: TextAlign.center,
                                             style: TextStyle(
                                                 fontWeight: FontWeight.bold,
